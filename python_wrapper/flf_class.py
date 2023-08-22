@@ -89,9 +89,7 @@ class flf_wrapper:
     def __init__(self, exp, file_dict=None):
         if file_dict is None:
             file_dict = {'namelist': 'flf.namelist',
-                         'input': 'point_temp.in',
-                         'output': 'point_temp.out',
-                         'bash': 'run_flf.sh'}
+                         'input': 'point_temp.in'}
 
         # define directories #
         self.flf_dir = os.path.join('/home', 'michael', 'Desktop', 'flf')
@@ -248,7 +246,11 @@ class flf_wrapper:
         # check for errors in execution #
         if len(flf_err) > 0:
             if clean:
-                cmnd = shlex.split('rm %s %s %s' % (self.namelist, self.in_path, os.path.join(self.wrapper_dir, 'results.out')))
+                res_file = os.path.join(self.wrapper_dir, 'results.out')
+                if os.path.isfile(res_file):
+                    cmnd = shlex.split('rm %s %s %s' % (self.namelist, self.in_path, res_file))
+                else:
+                    cmnd = shlex.split('rm %s %s' % (self.namelist, self.in_path))
                 subprocess.run(cmnd)
             if quiet:
                 return None
@@ -306,39 +308,15 @@ class flf_wrapper:
 
         # Delete I/O files #
         if clean:
-            cmnd = shlex.split('rm %s %s %s' % (self.namelist, self.in_path, os.path.join(self.wrapper_dir, 'results.out')))
+            res_file = os.path.join(self.wrapper_dir, 'results.out')
+            if os.path.isfile(res_file):
+                cmnd = shlex.split('rm %s %s %s' % (self.namelist, self.in_path, res_file))
+            else:
+                cmnd = shlex.split('rm %s %s' % (self.namelist, self.in_path))
             subprocess.run(cmnd)
 
         # Return flf results #
         return points
-
-    def read_wout(self):
-        """ Imports wout file corresponding to the current profile.
-
-        Raises
-        ------
-        IOError
-            wout file could not be found.
-        """
-        if self.exp == 'HSX':
-            crnts = self.params['mgrid_currents'].strip()
-            crnts = crnts.split()
-            crnts = [float(x) for x in crnts]
-
-            main_crnt = -crnts[0:6] / 10722.
-            aux_crnt = -crnts[6::] / (14 * 10722.)
-            crnt = np.r_[main_crnt, aux_crnt]
-
-            try:
-                path = functions.findPathFromCrnt(crnt)
-            except IOError:
-                raise IOError('wout file could not found.')
-
-            self.wout = wout_read.readWout(path)
-
-        else:
-            raise KeyError(self.exp+' experiment does not have available wout files.')
-
 
     def read_out_along_line(self, tor_ang, ro_ang, ro_lim, nsurf=3, plt=None, return_data=False):
         """ Makes Poincare plot with initial points generated from a line
@@ -456,10 +434,11 @@ class flf_wrapper:
         print('\nInitial Point : (%.4f, %.4f, %.4f)' % (init_point[0],init_point[1],init_point[2]))
         points = self.execute_flf(init_point, quiet=quiet, clean=clean)
         if points is None:
-            raise RuntimeError('FLF code failed on execution.')
-
-        for i, idx in enumerate(idx_stps):
-            poin_pnts[i] = points[idx]
+            poin_pnts = np.full(len(idx_stps), np.nan)
+            # raise RuntimeError('FLF code failed on execution.')
+        else:
+            for i, idx in enumerate(idx_stps):
+                poin_pnts[i] = points[idx]
 
         # Make Poincare plot #
         if ax:
@@ -700,81 +679,6 @@ class flf_wrapper:
             return poin_points
 
 
-    def fit_surf(self, init_point, r_modes=3, z_modes=3, plt=None):
-        """ Performs a Fourier fit to the poincare plot points in the toroidal
-        domain of the initialized point.
-
-        Parameters
-        ----------
-        init_point : arr
-            Initial (r,z,t) point from which field line following is done.
-        r_modes : int, optional
-            Number of Fourier modes in r coordinates. The default is 3.
-        z_modes : int, optional
-            Number of Fourier modes in r coordinates. The default is 3.
-        plt : obj, optional
-            Axis on which poincare plot is generated. The default is None.
-
-        Returns
-        -------
-        arr
-            Fourier fit data to poincare plot data.
-        float
-            Chi-squared of Fourier fit.
-        """
-        points = self.read_out_point(init_point, return_poin_data=True, plt=plt)[0::, 0:2]
-
-        # Check for flf failure #
-        if np.isnan(points).any():
-            print('Initial Point = ({0:0.4f}, {1:0.4f}, {2:0.4f}) : flf failure'.format(init_point[0], init_point[1], init_point[2]))
-            return init_point, np.inf
-
-        # Shift points around origin #
-        avg_pnt = [np.mean(points[0::,0]), np.mean(points[0::,1])]
-        points_shft = points - avg_pnt
-
-        r_shft, z_shft = points_shft[0::,0], points_shft[0::,1]
-
-        # Order points for FFT #
-        quad_1 = np.array( sorted( points_shft[(r_shft >= 0) & (z_shft >= 0)], key=lambda x: x[0], reverse=True) )
-        quad_2 = np.array( sorted( points_shft[(r_shft < 0) & (z_shft >= 0)], key=lambda x: x[0], reverse=True) )
-        quad_3 = np.array( sorted( points_shft[(r_shft < 0) & (z_shft < 0)], key=lambda x: x[0]) )
-        quad_4 = np.array( sorted( points_shft[(r_shft >= 0) & (z_shft < 0)], key=lambda x: x[0]) )
-
-        r_data_base = np.r_[quad_1[0::,0], quad_2[0::,0], quad_3[0::,0], quad_4[0::,0]]
-        r_data = np.r_[r_data_base, r_data_base, r_data_base, r_data_base]
-
-        z_data_base = np.r_[quad_1[0::,1], quad_2[0::,1], quad_3[0::,1], quad_4[0::,1]]
-        z_data = np.r_[z_data_base, z_data_base, z_data_base, z_data_base]
-
-        t_dom = np.linspace(0, 1, r_data.shape[0])
-
-        # Perform FFT #
-        r_fft = fft_class.fftTools(r_data, t_dom)
-        z_fft = fft_class.fftTools(z_data, t_dom)
-
-        # Filter Peaks #
-        r_fft.peak_selector(r_modes)
-        z_fft.peak_selector(z_modes)
-
-        # Perform IFFT #
-        r_ifft = r_fft.ifft(return_ifft=True, renormalize=True).real
-        z_ifft = z_fft.ifft(return_ifft=True, renormalize=True).real
-
-        # Calculate Chi-squared #
-        r_ifft_fit = r_ifft + np.min(r_ifft) + 1
-        r_data_exp = r_data + np.min(r_data) + 1
-
-        z_ifft_fit = z_ifft + np.min(z_ifft) + 1
-        z_data_exp = z_data + np.min(z_data) + 1
-
-        r_chi, r_pVal = chisquare(r_ifft_fit, r_data_exp)
-        z_chi, z_pVal = chisquare(z_ifft_fit, z_data_exp)
-
-        # Return flux surface points and Fourier fit chi-squared value #
-        flux_surf = np.stack((r_ifft, z_ifft), axis=1) + avg_pnt
-        return flux_surf, np.hypot(r_chi, z_chi)
-
     def flux_surface_dimensionality(self, points):
         """ Calculate the flux surface pointwise dimensional and return flux surface score.
         Ergodic field lines typically return values above 0.1
@@ -822,19 +726,20 @@ class flf_wrapper:
         # return np.hypot((1.-r_sq), (1.-slope))
         return slope-1.
 
-    def find_lcfs(self, init_point, dec_limit, r_limits, scan_res_limit=2, high_precission=False):
+    def find_lcfs(self, init_point, dec_limit, r_limits, scan_res_limit=2, high_precission=True):
         """ Approximately locate the LCFS and Magnetic Axis, represented as
         (r,z,t) points initialized in the flf code.
 
         Parameters
         ----------
         init_point: array
-            Initial point {r,z,t} from which we move in the negative radial direction
-            until a closed flux surface is found.  Initial steps are in 0.1
-            increments.
+            Initial point {r,z,t} from which radial steps are taken until a field-line is found
+            that does not leave the mgrid domain within the specified number of toroidal transits.
+            Initial steps are in 0.1 increments, but are then reduced by orders of magnitude as
+            the target surface is approached.
         dec_limit: int
-            Number of decimal points in approximation.  This does not guarantee
-            accuracy to this decimal point.
+            Number of decimal points in terminating step size.  This does not guarantee accuracy
+            to this decimal point.
         r_limits: tuple
             Radial limits of domain over which to perform scan. First and second 
             elements are the minimal and maximal R values, repsectively.
@@ -842,7 +747,7 @@ class flf_wrapper:
             The decimal point resolution the scan will go to. Default is 2.
         high_precission: Bool (optional)
             If True, then the pointwise dimension will be calculated for the LCFS to 
-            determine if the flux surface is ergodic or not. Default is False.
+            determine if the flux surface is ergodic or not. Default is True.
         """
         print('\n----------------\n'
               'Looking for LCFS\n'+
@@ -1006,78 +911,7 @@ class flf_wrapper:
               '------------------------\n'+
               'FLF Point ~ ({}, {}, {})'.format(self.ma_point[0], self.ma_point[1], self.ma_point[2]))
 
-    def flf_surface(self, ma_points, surf_points, mod_params, makeVTK=False, dictVTK=None):
-        """ Generates a B-field surface from the flf data provided by the
-        magnetic axis and the input initial field point.
-
-        Parameters
-        ----------
-        ma_pnt : arr
-            {r,z,t} point where magnetic axis is initialized.
-        surf_pnt : arr
-            {r,z,t} point where field line following will be initiated.  This
-            data will define the field surface that will be returned.
-        rots : int, optional
-            Number of toroidal transits to be performed by the flf code for the
-            field surface. The default is 500.
-        makeVTK : bool, optional
-            If you wish to produce a vtk file of the field surface set to True.
-            The default is False.
-        dictVTK : dict, optional
-            Dictionary that provides the directory path and file name where the
-            vtk file will be saved. The default is None.
-
-        Returns
-        -------
-        arr
-            Array containing the surface field data, returned in array with
-            shape {360, rots, 4}.  The first index is the toroidal points, the
-            second index is the poloidal points and the third index provides
-            the R, Z, mod B and poloidal angles.
-        """
-        #stps = int(2 * np.pi / mod_params['points_dphi'] )
-        rots = int( (mod_params['n_iter'] * mod_params['points_dphi']) / (2*np.pi) )
-        stps = int(surf_points.shape[0] / rots)
-        idx_stps = [int(i*stps) for i in range(rots)]
-
-        v_dom = surf_points[0::,2]
-        surf_ordered = np.empty((stps+1, rots, 5))
-        for v_idx, v in enumerate(ma_points[0::,2]):
-            idx_stps = np.argmin(np.abs(v_dom - v)) + [int(i*stps) for i in range(rots)]
-            stp_idx = np.argmin(np.abs(ma_points[0::,2] - v))
-            Rma, Zma = ma_points[stp_idx,0], ma_points[stp_idx,1]
-
-            vals = np.empty((rots,5))
-            for rot_idx, idx in enumerate(idx_stps):
-                r_val, z_val, B_mod = surf_points[idx][0], surf_points[idx][1], surf_points[idx][3]
-                pol = np.arctan2(z_val-Zma, r_val-Rma)
-                if pol < 0:
-                    pol = pol + 2*np.pi
-                vals[rot_idx] = np.array([r_val, z_val, v, B_mod, pol])
-            vals = np.array(sorted(vals, key=lambda x: x[4]))
-            surf_ordered[stp_idx] = vals
-        surf_ordered[-1] = surf_ordered[0]
-
-        if makeVTK and dictVTK:
-            import vtkTools.vtk_grids as vtkG
-
-            B_mod = surf_ordered[0::,0::,3]
-            z = surf_ordered[0::,0::,1]
-            y = np.empty(z.shape)
-            x = np.empty(z.shape)
-            for idx, v in enumerate(ma_points[0::,2]):
-                x[idx] = surf_ordered[idx,0::,0] * np.cos(v)
-                y[idx] = surf_ordered[idx,0::,0] * np.sin(v)
-
-            cart_coord = np.stack((x,y,z), axis=2)
-            vtkG.scalar_mesh(dictVTK['savePath'], dictVTK['fileName'], cart_coord, B_mod)
-
-        ma_ordered = np.empty(ma_points.shape)
-        ma_ordered = np.stack((ma_points[0:,0], ma_points[0:,2], ma_points[0:,1]), axis=1)
-
-        return surf_ordered, ma_ordered
-
-    def run_descur(self, ma_point, surf_point, pol_pnts=20, tor_pnts=100, plot_data=False, save_path=os.getcwd(), quiet=True, clean=True):
+    def generate_descur_input(self, ma_point, surf_point, pol_pnts=20, tor_pnts=100, plot_data=False, save_path=os.getcwd(), quiet=True, clean=True):
         """ Generate DESCUR input data for a flux surface.
 
         Parameters
@@ -1152,85 +986,6 @@ class flf_wrapper:
             file.write('{0} {1} {2}\n'.format(u_pnts, v_pnts, nfp))
             for n in range(n_pnts):
                 file.write('{0:0.6f} {1:0.6f} {2:0.6f} \n'.format(fit_data[n,0], fit_data[n,1], fit_data[n,2]))
-
-    def sample_circle(self, ma_pnt, lcfs_pnt, upts=100, diam=5e-2, delta=1e-3, Bidx='Bmod'):
-        #from scipy.interpolate import interp1d
-        dphi = (2 * np.pi) / 360
-        stps = 360
-        npts = int(upts * stps)
-
-        mod_dict = {'points_dphi' : dphi,
-                    'n_iter' : npts}
-
-        nsurf = 3
-        self.change_params(mod_dict)
-        points = self.read_out_domain(ma_pnt, lcfs_pnt, nsurf, return_data=True)
-
-        diam = 2 * np.max( np.linalg.norm( points[nsurf-1,0:,0:2] - ma_pnt[0:2], axis=1 ) )
-
-        Npts = 0.25 * np.pi * ( ( diam / delta )**2 + 2 * ( diam / delta ) + 1 )
-        Ypts = int( 2 * np.sqrt( Npts / np.pi ) )
-
-        ylim = np.linspace(ma_pnt[1] - 0.5 * diam, ma_pnt[1] + 0.5 * diam, Ypts)
-
-        xlim_left = ma_pnt[0] - np.sqrt( 0.25 * diam**2 - ( ylim - ma_pnt[1] )**2 )
-        xlim_right = ma_pnt[0] + np.sqrt( 0.25 * diam**2 - ( ylim - ma_pnt[1] )**2 )
-
-        length = 0
-        for xidx, xval_l in enumerate(xlim_left):
-            xval_r = xlim_right[xidx]
-            length = length + xval_l - xval_r
-
-        nspc = Npts / length
-
-        points_in = np.array([[ xlim_left[0], ylim[0], ma_pnt[2] ]])
-        for xidx, xval_l in enumerate(xlim_left[1:]):
-            xidx = xidx + 1
-            xval_r = xlim_right[xidx]
-
-            lngth = xval_l - xval_r
-
-            xpts = np.linspace(xval_l, xval_r, int( lngth * nspc ) )
-            ypts = np.array([ylim[xidx]] * xpts.shape[0])
-            tpts = np.array([ma_pnt[2]] * xpts.shape[0])
-            pts_in = np.stack((xpts, ypts, tpts), axis=1)
-
-            points_in = np.append(points_in, pts_in, axis=0)
-
-        mod_dict = {'general_option' : 2,
-                    'points_number' : points_in.shape[0]}
-
-        self.change_params(mod_dict)
-        points_out = self.execute_flf(points_in)
-        if points is None:
-            raise RuntimeError('FLF code failed on execution.')
-
-        plot = pd.plot_define(eqAsp=True)
-
-        if Bidx == 'Bmod':
-            bidx = 3
-            blab = r'$|B|$'
-        elif Bidx == 'Br':
-            bidx = 0
-            blab = r'$B_r$'
-        elif Bidx == 'Bz':
-            bidx = 1
-            blab = r'$B_z$'
-        elif Bidx == 'Bt':
-            bidx = 2
-            blab = r'$B_{\theta}$'
-
-        scl = 1e2
-        plot.plt.scatter(points[0:,0:,0] * scl, points[0:,0:,1] * scl, c='k', s=5, zorder=10)
-        s_map = plot.plt.scatter(points_in[0:,0] * scl, points_in[0:,1] * scl, c=points_out[0:,bidx] * 1e3, s=5, cmap='jet')
-
-        plot.plt.xlabel('R [cm]')
-        plot.plt.ylabel('Z [cm]')
-
-        cbar = plot.fig.colorbar(s_map, ax=plot.ax)
-        cbar.ax.set_ylabel(blab+' [mT]')
-
-        plot.plt.show()
 
     def calc_psiEdge(self, ma_pnt, lcfs_pnt, Npts=1000, upts=100, Bidx='Bmod', plot_true=True, quiet=True, clean=True):
         """ A well documented commentary
@@ -1430,52 +1185,6 @@ class flf_wrapper:
         return psi_edge
 
 
-    def z_field_drift(self, ma_init, dstp=1, quiet=True, clean=True):
-        """ Calculate the magnetic field over one toroidal transit along the
-        magnetic axis.
-
-        Parameters
-        ----------
-        ma_init : arr
-            {r,z,phi} point where magnetic axis is initialized.
-        dstp : int, optional
-            phi step size in degrees. The default is 1.
-
-        Returns
-        -------
-        B_vec : TYPE
-            DESCRIPTION.
-        points : TYPE
-            DESCRIPTION.
-
-        """
-        rots=1
-
-        dphi = dstp * (np.pi/180)
-        stps = int(2 * np.pi / dphi)
-        npts = int(rots*stps)
-
-        mod_dict = {'general_option' : 1,
-                    'points_number' : 1,
-                    'points_dphi' : dphi,
-                    'n_iter' : npts}
-
-        self.change_params(mod_dict)
-        points = self.execute_flf(ma_init, quiet=quiet, clean=clean)
-        if points is None:
-            raise RuntimeError('FLF code failed on execution.')
-
-        mod_dict = {'general_option' : 2,
-                    'points_number' : npts}
-
-        self.change_params(mod_dict)
-        B_vec = self.execute_flf(points[0::,0:3], quiet=quiet, clean=clean)
-        if points is None:
-            raise RuntimeError('FLF code failed on execution.')
-
-        return B_vec, points
-
-
     def save_read_out_domain(self, data_key, pnt1, pnt2, nsurf, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save field line coordinate data for the specified number of field
         lines, with each field line initialized along a line between two
@@ -1519,7 +1228,6 @@ class flf_wrapper:
         hf_file = hf.File(fileName, 'a')
         hf_file.create_dataset(data_key, data=points)
         hf_file.close()
-
 
     def save_read_out_square(self, data_key, center_point, half_width, npts, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save field square coordinate data for the specified number of field
@@ -1569,7 +1277,6 @@ class flf_wrapper:
         hf_file.create_dataset(data_key, data=points)
         hf_file.close()
 
-
     def save_read_out_line(self, data_key, init_point, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save single field line coordinate data.  Makes hdf5 file.
 
@@ -1583,7 +1290,7 @@ class flf_wrapper:
             Full path of hdf5 file to be saved. The default is
             './poincare_set.h5'.
         """
-        ### Run flf code ###
+        # Run flf code #
         print('\nInitial Point : (%.4f, %.4f, %.4f)' % (init_point[0],init_point[1],init_point[2]))
         points = self.execute_flf(init_point, quiet=quiet, clean=clean)
         if points is None:
@@ -1592,7 +1299,6 @@ class flf_wrapper:
         hf_file = hf.File(fileName, 'a')
         hf_file.create_dataset(data_key, data=points)
         hf_file.close()
-
 
     def save_Bvec_data(self, data_key, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save magnetic field vectors at the cylidrical points specified in
@@ -1611,7 +1317,7 @@ class flf_wrapper:
         ValueError
             Imported grid data does not have proper dimensionality.
         """
-        ### Import grid points ###
+        # Import grid points #
         hf_file = hf.File(fileName, 'r')
         points = hf_file[data_key][:]
         hf_file.close()
@@ -1624,7 +1330,7 @@ class flf_wrapper:
         else:
             raise ValueError(fileName+' data set ('+data_key+') has dimensions {}, but should be 2 or 3'.format(ndim))
 
-        ### Calculate B vector at grid points ###
+        # Calculate B vector at grid points #
         chg_dict = {'general_option' : 2,
                     'points_number' : npts}
 
@@ -1641,7 +1347,7 @@ class flf_wrapper:
             if vec_points is None:
                 raise RuntimeError('FLF code failed on execution.')
 
-        ### Save Vector data ###
+        # Save Vector data #
         hf_file = hf.File(fileName, 'a')
         hf_file.create_dataset(data_key+' Bvec', data=vec_points)
         hf_file.close()
@@ -1656,8 +1362,7 @@ if __name__ == '__main__':
 
     flf = flf_wrapper('HSX')
     flf.change_params(mod_dict)
-    flf.set_transit_parameters(45, 1)
+    flf.set_transit_parameters(5, 500)
 
-    init_point = np.array([1.45, 0., 0.]) 
-    points = flf.execute_flf(init_point, quiet=True, clean=True)
-    print(points)
+    init_point = np.array([1.5188, 0., 0.]) 
+    flf.find_lcfs(init_point, 4, [0., 2.], high_precission=False)
