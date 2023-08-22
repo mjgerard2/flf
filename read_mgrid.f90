@@ -198,9 +198,9 @@ subroutine load_mgrid_netcdf
 
   !grab the min and max r values
   status = nf_inq_varid(ncid, 'rmin', varid)
-  status = nf_get_var_double(ncid, varid, mgrid_rmin)
+  status = nf_get_var(ncid, varid, mgrid_rmin)
   status = nf_inq_varid(ncid, 'rmax', varid)
-  status = nf_get_var_double(ncid, varid, mgrid_rmax)
+  status = nf_get_var(ncid, varid, mgrid_rmax)
   !assemble the r array
   dr = (mgrid_rmax - mgrid_rmin)/(mgrid_nr-1)
   mgrid_r(1) = mgrid_rmin
@@ -211,9 +211,9 @@ subroutine load_mgrid_netcdf
 
   !do the same for z
   status = nf_inq_varid(ncid, 'zmin', varid)
-  status = nf_get_var_double(ncid, varid, mgrid_zmin)
+  status = nf_get_var(ncid, varid, mgrid_zmin)
   status = nf_inq_varid(ncid, 'zmax', varid)
-  status = nf_get_var_double(ncid, varid, mgrid_zmax)
+  status = nf_get_var(ncid, varid, mgrid_zmax)
   !assemble the r array
   dz = (mgrid_zmax - mgrid_zmin)/(mgrid_nz-1)
   mgrid_z(1) = mgrid_zmin
