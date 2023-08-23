@@ -1,25 +1,17 @@
-import warnings
+import os, sys, warnings, shlex, subprocess
 import numpy as np
 import h5py as hf
-import shlex
-import subprocess
-
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import matplotlib.path as mpltPath
-from scipy.stats import chisquare
 
+from scipy.stats import chisquare
 from sklearn.linear_model import LinearRegression
 
-import os, sys
-WORKDIR = os.path.join('/home', 'michael', 'Desktop', 'python_repos', 'turbulence-optimization', 'pythonTools')
-sys.path.append(WORKDIR)
-
-from databaseTools import functions
-from vmecTools.wout_files import wout_read
-from flfTools.exp_params import params
-import fft_class
-
-import plot_define as pd
-import directory_dict as dd
+flf_dir = os.path.join('/home', 'michael', 'Desktop', 'flf')
+wrapper_dir = os.path.join(flf_dir, 'python_wrapper')
+sys.path.append(wrapper_dir)
+import exp_params as ep
 
 
 class flf_wrapper:
@@ -92,8 +84,8 @@ class flf_wrapper:
                          'input': 'point_temp.in'}
 
         # define directories #
-        self.flf_dir = os.path.join('/home', 'michael', 'Desktop', 'flf')
-        self.wrapper_dir = os.path.join(self.flf_dir, 'python_wrapper')
+        self.flf_dir = flf_dir
+        self.wrapper_dir = wrapper_dir
 
         # define executable and file names #
         self.exe = os.path.join(self.flf_dir, 'flf')
@@ -102,7 +94,7 @@ class flf_wrapper:
         self.run_cmd = shlex.split('%s %s' % (self.exe, self.namelist))
         
         self.exp = exp
-        self.params = params[exp]
+        self.params = ep.params[exp]
 
         with open(self.namelist, 'w') as file:
             file.write('&flf\n' +
@@ -318,95 +310,7 @@ class flf_wrapper:
         # Return flf results #
         return points
 
-    def read_out_along_line(self, tor_ang, ro_ang, ro_lim, nsurf=3, plt=None, return_data=False):
-        """ Makes Poincare plot with initial points generated from a line
-        extending out from the magnetic axis to the specified radial domain.
-
-        Parameters
-        ----------
-        tor_ang : float
-            Angle of toroidal cross section where the Poincare plot is
-            generated.
-        ro_ang : float
-            Angle of the generating line extending out from the magnetic axis.
-        ro_lim : float
-            Scalar multiple of maximum minor radius of LCFS.  Constrains the
-            radial domain of generating line.
-        nsurf : int, optional
-            Number of initial points taken from generating line.
-            The default is 3.
-        plt : obj, optional
-            Axis on which poincare plot is generated. The default is None.
-        return_data : bool, optional
-            If True, returns poincare plot points. The default is False.
-
-        Returns
-        -------
-        arr
-            Poincare plot points, optional
-        """
-        # Read Out parameters #
-        stps = int( (2*np.pi) / self.params['points_dphi'] )
-        rots = int( (self.params['n_iter'] * self.params['points_dphi']) / (2*np.pi) )
-        idx_stps = [int(i*stps) for i in range(rots)]
-
-        # Get magnetic axis and raidal domain from wout #
-        keys = ['R', 'Z']
-        pol_ang = np.linspace(0, 2*np.pi, 1001)
-        self.wout.transForm_2D_vSec(pol_ang, tor_ang, keys)
-
-        R_dom = self.wout.invFourAmps['R']
-        Z_dom = self.wout.invFourAmps['Z']
-
-        R_ma = R_dom[0,0,0]
-        Z_ma = Z_dom[0,0,0]
-
-        r_eff = np.hypot(R_dom[-1,0,0::]-R_ma, Z_dom[-1,0,0::]-Z_ma)
-        r_max = np.nanmax(r_eff)
-        r_dom = np.linspace(0, ro_lim*r_max, nsurf)
-
-        # Initial Poincare Points #
-        ro_cos = np.cos(ro_ang)
-        ro_sin = np.sin(ro_ang)
-
-        init_points = np.empty((nsurf, 3))
-        for idx, r in enumerate(r_dom):
-            x = R_ma + r * ro_cos
-            y = Z_ma + r * ro_sin
-
-            init_points[idx] = [x,y,tor_ang]
-
-        # Run flf #
-        poin_points = np.empty((nsurf, rots, 4))
-        for i, init in enumerate(init_points):
-            print('\nInitial Point {0} of {1} : '.format(i+1,nsurf)+'(%.4f, %.4f, %.4f)' % (init[0],init[1],init[2]))
-            points = self.execute_flf(init)
-            if points is None:
-                raise RuntimeError('FLF code failed on execution.')
-            for j, idx in enumerate(idx_stps):
-                poin_points[i,j] = points[idx]
-
-        # Make Poincare plot #
-        if plt:
-            cm = plt.cm.get_cmap('jet')
-
-            B_non0 = np.nonzero(poin_points[0::,0::,3])
-            Bmin = np.nanmin(poin_points[B_non0[0], B_non0[1], 3])
-            Bmax = np.nanmax(poin_points[0::,0::,3])
-
-            plt.scatter(poin_points[0::,0,0], poin_points[0::,0,1], c='k', marker='X', s=50, zorder=5)
-            plt.scatter(poin_points[0::,0::,0], poin_points[0::,0::,1], c=poin_points[0::,0::,3], vmin=Bmin, vmax=Bmax, s=3, cmap=cm)
-            plt.colorbar(label=r'$|\mathbf{B}|$', format='%.4f')
-
-            plt.title(r'$\theta$ = %.4f $\pi$' % (tor_ang/np.pi))
-            plt.xlabel('R')
-            plt.ylabel('Z')
-
-        if return_data:
-            return poin_points
-
-
-    def read_out_point(self, init_point, ax=None, return_poin_data=False, quiet=True, clean=True):
+    def read_out_point(self, init_point, quiet=True, clean=True):
         """ Makes Poincare plot by following field line found at input point.
 
         Parameters
@@ -424,45 +328,22 @@ class flf_wrapper:
             Poincare plot points, optional
         """
         # Read Out parameters #
+        nitr = self.params['n_iter']
         stps = int(2 * np.pi / self.params['points_dphi'] )
         rots = int( (self.params['n_iter'] * self.params['points_dphi']) / (2*np.pi) )
         idx_stps = [int(i*stps) for i in range(rots)]
 
         # Run flf code #
-        poin_pnts = np.empty((rots, 4))
-
         print('\nInitial Point : (%.4f, %.4f, %.4f)' % (init_point[0],init_point[1],init_point[2]))
         points = self.execute_flf(init_point, quiet=quiet, clean=clean)
         if points is None:
-            poin_pnts = np.full(len(idx_stps), np.nan)
-            # raise RuntimeError('FLF code failed on execution.')
+            self.exe_points = np.full((nitr, 4), np.nan)
+            self.poin_points = np.full((rots, 4), np.nan)
         else:
-            for i, idx in enumerate(idx_stps):
-                poin_pnts[i] = points[idx]
+            self.exe_points = points
+            self.poin_points = self.exe_points[idx_stps]
 
-        # Make Poincare plot #
-        if ax:
-            cm = 'jet'
-
-            Bmin = np.nanmin(poin_pnts[np.nonzero(poin_pnts[0::,3]), 3])
-            Bmax = np.nanmax(poin_pnts[0::,3])
-
-            # plt.scatter([np.mean(poin_pnts[0::,0])], [np.mean(poin_pnts[0::,1])], c='k', marker='X', s=50, zorder=5)
-
-            ax.scatter([init_point[0]], [init_point[1]], c='k', marker='X', s=50, zorder=5)
-            ax.scatter(poin_pnts[0::,0], poin_pnts[0::,1], c=poin_pnts[0::,3], vmin=Bmin, vmax=Bmax, s=3)
-            # ax.colorbar(label=r'$|\mathbf{B}|$', format='%.2f')
-
-            ax.set_xlabel('R')
-            ax.set_ylabel('Z')
-
-            ax.grid()
-
-        if return_poin_data:
-            return poin_pnts
-
-
-    def read_out_set(self, init_points, plt=None, return_data=False, quiet=True, clean=True):
+    def read_out_set(self, init_points, quiet=True, clean=True):
         """ Makes Poincare plot by following field line found at input point.
 
         Parameters
@@ -480,79 +361,41 @@ class flf_wrapper:
             Poincare plot points, optional
         """
         # Read Out parameters #
+        nitr = self.params['n_iter']
         stps = int(2 * np.pi / self.params['points_dphi'])
-        rots = int( (self.params['n_iter'] * self.params['points_dphi']) / (2*np.pi) )
+        rots = int( (nitr * self.params['points_dphi']) / (2*np.pi) )
         idx_stps = [int(i*stps) for i in range(rots)]
 
         # Run flf code #
-        poin_set = np.empty((init_points.shape[0], rots, 4))
+        self.exe_points = np.full((init_points.shape[0], nitr, 4), np.nan)
+        self.poin_points = np.full((init_points.shape[0], rots, 4), np.nan)
         for idx, init_point in enumerate(init_points):
             poin_pnts = np.empty((rots, 4))
-
             print('\nInitial Point {0:0.0f} of {1:0.0f} : '.format(idx+1, init_points.shape[0])+'(%.4f, %.4f, %.4f)' % (init_point[0],init_point[1],init_point[2]))
-            if idx+1 == len(init_points):
-                points = self.execute_flf(init_point, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
-            else:
-                points = self.execute_flf(init_point, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
+            points = self.execute_flf(init_point, quiet=quiet, clean=clean)
+            if not points is None:
+                self.exe_points[idx] = points
+                self.poin_points[idx] = points[idx_stps]
 
-            for i, jdx in enumerate(idx_stps):
-                poin_pnts[i] = points[jdx]
-
-            poin_set[idx] = poin_pnts
-
-        # Make Poincare plot #
-        if plt:
-            # cm = 'jet' # plt.cm.get_cmap('jet')
-
-            Bmin = np.nanmin(poin_set[:,np.nonzero(poin_set[:,:,3]), 3])
-            Bmax = np.nanmax(poin_set[:,:,3])
-
-            for idx in range(poin_set.shape[0]):
-                #plt.scatter(poin_set[idx,:,0], poin_set[idx,:,1], c=poin_set[idx,:,3], vmin=Bmin, vmax=Bmax, s=3, cmap=cm)
-                if idx+1 == len(poin_set):
-                    plt.scatter(poin_set[idx,:,0], poin_set[idx,:,1], c='tab:red', s=3, label='FLF')
-                else:
-                    plt.scatter(poin_set[idx,:,0], poin_set[idx,:,1], c='tab:red', s=3)
-            #plt.colorbar(label=r'$|\mathbf{B}|$', format='%.2f')
-
-            plt.xlabel('R (m)')
-            plt.ylabel('Z (m)')
-
-            plt.grid()
-
-        if return_data:
-            return poin_set
-
-
-    def read_out_domain(self, pnt1, pnt2, nsurf, ax=None, return_data=False, quiet=True, clean=True):
-        """ Makes Poincare plot with initial points generated from a line
-        extending between two specified points.
+    def read_out_domain(self, pnt1, pnt2, nsurf, quiet=True, clean=True):
+        """ Save field line coordinate data for the specified number of field
+        lines, with each field line initialized along a line between two
+        points.  Makes hdf5 file.
 
         Parameters
         ----------
         pnt1 : arr
-            [r,z,t] values of first initial point.
+            (r,z,t) point where read out line begins.
         pnt2 : arr
-            [r,z,t] values of second initial point.
+            (r,z,t) point where read out line ends.
         nsurf : int
-            Number of initial points taken from generating line.
-        ax : obj, optional
-            Axis on which poincare plot is generated. The default is None.
-        return_data : bool, optional
-            If True, returns poincare plot points. The default is False.
-
-        Returns
-        -------
-        arr
-            Poincare plot points, optional
+            Number of field lines to be followed between pnt1 and pnt2, end
+            points inclused.
         """
         # Read Out parameters #
-        stps = int( (2*np.pi) / self.params['points_dphi'] )
-        rots = int( (self.params['n_iter'] * self.params['points_dphi']) / (2*np.pi) )
+        nitr = self.params['n_iter']
+        stps = int(2 * np.pi / self.params['points_dphi'])
+        rots = int( (nitr * self.params['points_dphi']) / (2*np.pi) )
         idx_stps = [int(i*stps) for i in range(rots)]
 
         # Poincare Points #
@@ -567,68 +410,33 @@ class flf_wrapper:
         init_points = np.stack([r_dom, z_dom, t_dom], axis=1)
 
         # Run flf code #
-        poin_points = np.empty((nsurf, rots, 4))
+        self.exe_points = np.full((nsurf, nitr, 4), np.nan)
+        self.poin_points = np.full((nsurf, rots, 4), np.nan)
         for i, init in enumerate(init_points):
-            print('\nInitial Point {0} of {1} : '.format(i+1,nsurf)+'(%.8f, %.8f, %.8f)' % (init[0],init[1],init[2]))
-            if i+1 == init_points.shape[0]:
-                points = self.execute_flf(init, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
-            else:
-                points = self.execute_flf(init, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
+            print('\nInitial Point {0} of {1} : '.format(i+1,nsurf)+'(%.4f, %.4f, %.4f)' % (init[0],init[1],init[2]))
+            points = self.execute_flf(init, quiet=quiet, clean=clean)
+            if not points is None:
+                self.exe_points[i] = points
+                self.poin_points[i] = points[idx_stps]
 
-            for j, idx in enumerate(idx_stps):
-                poin_points[i,j] = points[idx]
-
-        # Make Poincare plot #
-        if ax:
-            cm ='jet'  # plt.cm.get_cmap('jet')
-
-            B_non0 = np.nonzero(poin_points[0::,0::,3])
-            Bmin = np.nanmin(poin_points[B_non0[0], B_non0[1], 3])
-            Bmax = np.nanmax(poin_points[0::,0::,3])
-
-            # plt.scatter(poin_points[:, 0, 0], poin_points[:, 0, 1], s=100, marker='x', c='k')
-            ax.scatter(poin_points[0::,0::,0], poin_points[0::,0::,1], c='k', s=1)  # , vmin=Bmin, vmax=Bmax, cmap=cm)
-            # plt.scatter(poin_points[0::,0::,0], poin_points[0::,0::,1], c=poin_points[0::,0::,3], s=10, vmin=Bmin, vmax=Bmax, cmap=cm)
-            # plt.colorbar(label=r'$|\mathbf{B}| \ [T]$', format='%.2f')
-
-            ax.set_title(r'$\theta$ = %.3f $\pi$' % (pnt1[2]/np.pi))
-            ax.set_xlabel('R')
-            ax.set_ylabel('Z')
-
-        if return_data:
-            return poin_points
-
-
-    def read_out_grid_sample(self, center_point, half_width, npts, plt=None, return_data=False, quiet=True, clean=True):
-        """ Makes Poincare plot with initial points generated as a uniform set
-        from the square centered around a point.
+    def read_out_square(self, center_point, half_width, npts, quiet=True, clean=True):
+        """ Save field square coordinate data for the specified number of field
+        lines, with each field line initialized from a square grid centered
+        around the center point.  Makes hdf5 file.
 
         Parameters
         ----------
         center_point : arr
-            [r,z,t] values of center point.
+            (r,z,t) point around which square grid is centered..
         half_width : float
-            value of the half width of the square centered around the
-            center_point.
+            Half the width of the square..
         npts : int
-            Number of points initialized in circle.
-        plt : obj, optional
-            Axis on which poincare plot is generated. The default is None.
-        return_data : bool, optional
-            If True, returns poincare plot points. The default is False.
-
-        Returns
-        -------
-        arr
-            Poincare plot points, optional
+            Approximate number of field lines to be followed within the grid.
         """
         # Read Out parameters #
-        stps = int((2*np.pi) / self.params['points_dphi'])
-        rots = int((self.params['n_iter'] * self.params['points_dphi']) / (2*np.pi))
+        nitr = self.params['n_iter']
+        stps = int(2 * np.pi / self.params['points_dphi'])
+        rots = int( (npts * self.params['points_dphi']) / (2*np.pi) )
         idx_stps = [int(i*stps) for i in range(rots)]
 
         # Poincare Points #
@@ -643,41 +451,287 @@ class flf_wrapper:
         init_points = np.stack((r_grid, z_grid, t_grid), axis=3)
         init_points = init_points.flatten().reshape(npts, 3)
 
-        # Run flf code #
-        poin_points = np.empty((npts, rots, 4))
+        # Run flf code #]
+        self.exe_points = np.full((npts, nitr, 4), np.nan)
+        self.poin_points = np.full((npts, rots, 4), np.nan)
         for i, init in enumerate(init_points):
-            print('\nInitial Point {0} of {1} : '.format(i+1, npts)+'(%.8f, %.8f, %.8f)' % (init[0], init[1], init[2]))
-            if i+1 == init_points.shape[0]:
-                points = self.execute_flf(init, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
-            else:
-                points = self.execute_flf(init, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
+            print('\nInitial Point {0} of {1}: '.format(i+1, npts)+'(%.4f, %.4f, %.4f)' % (init[0], init[1], init[2]))
+            points = self.execute_flf(init, quiet=quiet, clean=clean)
+            if not points is None:
+                self.exe_points[i] = points
+                self.poin_points[i] = points[idx_stps]
 
-            for j, idx in enumerate(idx_stps):
-                poin_points[i, j] = points[idx]
+    def plotting(self, fontsize=14, labelsize=16, linewidth=2):
+        """ Define plotting parameters.
 
-        # Make Poincare plot #
-        if plt:
-            cm = plt.cm.get_cmap('jet')
+        Parameters
+        ----------
+        fontsize: int, optional
+            Size of fonts in figure. Default is 14.
+        labelsize: int, optional
+            Size of labels in figure. Default is 16.
+        linewidth: int, optional
+            Line width in figure. Default is 2.
+        """
+        plt.close('all')
 
-            B_non0 = np.nonzero(poin_points[:, :, 3])
-            Bmin = np.nanmin(poin_points[B_non0[0], B_non0[1], 3])
-            Bmax = np.nanmax(poin_points[:, :, 3])
+        font = {'family': 'sans-serif',
+                'weight': 'normal',
+                'size': fontsize}
 
-            plt.scatter(poin_points[:, 0, 0], poin_points[:, 0, 1], s=100, marker='x', c='k')
-            plt.scatter(poin_points[:, :, 0], poin_points[:, :, 1], c=poin_points[:, :, 3], s=10, vmin=Bmin, vmax=Bmax, cmap=cm)
-            # plt.colorbar(label=r'$|\mathbf{B}| \ [T]$', format='%.2f')
+        mpl.rc('font', **font)
 
-            plt.title(r'$\theta$ = %.3f $\pi$' % (center_point[2]/np.pi))
-            plt.xlabel('R')
-            plt.ylabel('Z')
+        mpl.rcParams['axes.labelsize'] = labelsize
+        mpl.rcParams['lines.linewidth'] = linewidth
 
-        if return_data:
-            return poin_points
+    def plot_poincare_data(self, save_path=None):
+        """ Plot poincare data.
+        """
+        self.plotting()
+        fig, ax = plt.subplots(tight_layout=True)
+        ax.set_aspect('equal')
+        
+        # plot data #
+        poin_data = self.poin_points
+        if poin_data.ndim == 3:
+            for data in poin_data:
+                smap = ax.scatter(data[:, 0], data[:, 1], c=data[:, 3], s=1)
+        elif poin_data.ndim == 2:
+            smap = ax.scatter(poin_data[:, 0], poin_data[:, 1], c=poin_data[:, 3], s=1)
+            ax.scatter(poin_data[0, 0], poin_data[0, 1], c='k', s=100, marker='x')
 
+        # axis labels #
+        ax.set_xlabel('R/m')
+        ax.set_ylabel('Z/m')
+
+        cbar = fig.colorbar(smap, ax=ax)
+        cbar.ax.set_ylabel('B/T')
+
+        # axis grid #
+        ax.grid()
+
+        # save/show#
+        if save_path is None:
+            plt.show()
+        else:
+            plt.savefig(save_path)
+
+    def save_poincare_data(self, save_path, data_key):
+        """ Save Poincare data as hdf5 file.
+
+        Parameters
+        ----------
+        save_path: str
+            Global path to where the hdf5 file will be saved.
+        data_key: str
+            Hdf5 data key that the data will be saved under.
+        """
+        with hf.File(save_path, 'a') as hf_:
+            hf_.create_dataset(data_key, data=self.poin_data)
+
+    def save_exe_data(self, save_path, data_key):
+        """ Save data output from the flf code as hdf5 file.
+
+        Parameters
+        ----------
+        save_path: str
+            Global path to where the hdf5 file will be saved.
+        data_key: str
+            Hdf5 data key that the data will be saved under.
+        """
+        with hf.File(save_path, 'a') as hf_:
+            hf_.create_dataset(data_key, data=self.exe_data)
+
+    def find_lcfs(self, init_point, dec_limit, r_limits, scan_res_limit=2, high_precission=True):
+        """ Approximately locate the LCFS and Magnetic Axis, represented as
+        (r,z,t) points initialized in the flf code.
+
+        Parameters
+        ----------
+        init_point: array
+            Initial point {r,z,t} from which radial steps are taken until a field-line is found
+            that does not leave the mgrid domain within the specified number of toroidal transits.
+            Initial steps are in 0.1 increments, but are then reduced by orders of magnitude as
+            the target surface is approached.
+        dec_limit: int
+            Number of decimal points in terminating step size.  This does not guarantee accuracy
+            to this decimal point.
+        r_limits: tuple
+            Radial limits of domain over which to perform scan. First and second 
+            elements are the minimal and maximal R values, repsectively.
+        scan_res_limit: int (optional)
+            The decimal point resolution the scan will go to. Default is 2.
+        high_precission: Bool (optional)
+            If True, then the pointwise dimension will be calculated for the LCFS to 
+            determine if the flux surface is ergodic or not. Default is True.
+        """
+        print('\n----------------\n'
+              'Looking for LCFS\n'+
+              '----------------')
+        scan_res = 1
+        first_contact = False
+        exceed_limit = False
+        r_init = init_point[0]
+        self.read_out_point(init_point)
+        flf_points = flf.exe_points
+        while scan_res <= scan_res_limit:
+            dr_dom = np.logspace(-scan_res, -dec_limit, 1+dec_limit-scan_res)
+            for dr_scl in dr_dom:
+                stp_cnt = -1
+                if not first_contact and not exceed_limit:
+                    if np.isnan(flf_points).any():
+                        dr = -dr_scl
+                    else:
+                        dr = dr_scl
+
+                    stp_cnt += 1
+                    init_point[0] += dr
+                    Dr_max = r_limits[1] - init_point[0]
+                    Dr_min = init_point[0] - r_limits[0]
+                    if (Dr_min <= 0) or (Dr_max <= 0):
+                        exceed_limit = True
+                        init_point[0] = r_init + .1*dr
+                        scan_res += 1
+                        break
+                else:
+                    dr = np.sign(dr)*dr_scl
+
+                while True:
+                    self.read_out_point(init_point)
+                    flf_points = flf.exe_points
+                    are_nans = np.isnan(flf_points).any()
+                    if are_nans and (dr > 0):
+                        break
+                    elif not are_nans and (dr < 0):
+                        break
+                    stp_cnt += 1
+                    init_point[0] += dr
+                    Dr_max = r_limits[1] - init_point[0]
+                    Dr_min = init_point[0] - r_limits[0]
+                    if (Dr_min <= 0) or (Dr_max <= 0):
+                        exceed_limit = True
+                        break
+
+                    if first_contact:
+                        if stp_cnt >= 8:
+                            break
+
+                if (Dr_max <= 0) or (Dr_min <= 0):
+                    init_point[0] = r_init + .1*dr
+                    scan_res += 1
+                    break
+
+                else:
+                    first_contact = True
+                    scan_res = scan_res_limit+1
+                    if dr < 0:
+                        r_min = init_point[0]
+                        r_max = init_point[0] - dr
+                        init_point[0] = r_max + .1*dr
+                    else:
+                        r_min = init_point[0] - dr
+                        r_max = init_point[0]
+                        init_point[0] = r_min + .1*dr
+                    print('\n{0} < r_init < {1}'.format(round(r_min, dec_limit), round(r_max, dec_limit)))
+
+        if (Dr_max <= 0) or (Dr_min <= 0):
+            self.lcfs_point = np.full(3, np.nan)
+            warnings.warn("LCFS not found within radial limits.")
+        else:
+            init_point[0] = r_min
+            if high_precission:
+                print('\n-------------------------------\n'+
+                      'Beginning high precission phase\n'+
+                      '-------------------------------')
+                self.read_out_point(init_point)
+                flf_points = self.poin_points
+                fs_check = self.flux_surface_dimensionality(flf_points)
+                print('flux surface dimension = {}'.format(fs_check+1))
+                while fs_check > 0.05:
+                    init_point[0] -= np.abs(dr)
+                    self.read_out_point(init_point)
+                    flf_points = self.poin_points
+                    fs_check = self.flux_surface_dimensionality(flf_points)
+                    print('flux surface dimension = {}'.format(fs_check+1))
+
+            self.lcfs_point = np.round(init_point, decimals=dec_limit)
+            print('\n---------------\n'
+                  'LCFS Identified\n'+
+                  '---------------\n'+
+                  'FLF Point ~ ({}, {}, {})'.format(self.lcfs_point[0], self.lcfs_point[1], self.lcfs_point[2]))
+        
+    def find_magnetic_axis(self, init_point, dec):
+        """  Approximately locate the Magnetic Axis, represented as (r,z,t)
+        points initialized in the flf code.
+
+        Parameters
+        ----------
+        init_point : arr
+            Initial guess for magnetic axis.  This needn't be a good guess, but
+            it should be on a closed flux surface for best results.
+        dec : int
+            Number of decimal points in approximation.  This does not guarantee
+            accuracy to this decimal point.
+        """
+        print('\n-------------------------\n'
+              'Looking for Magnetic Axis\n'+
+              '-------------------------')
+        self.read_out_point(init_point)
+        points = self.poin_points
+        ma_point = np.r_[np.mean(points[0::,0:2], axis=0), init_point[2]]
+
+        pnt_sep = np.max(points[0::,0]) - np.min(points[0::,0])
+        pnt_scl = np.floor(np.log10(pnt_sep))
+
+        dist = np.linalg.norm(ma_point - init_point)
+        dist_scl = np.floor(np.log10(dist))
+
+        path = mpltPath.Path(points[0::,0:2])
+        inside = path.contains_point(ma_point[0:2])
+
+        cnt = 0
+        ma_points = []
+        while dist_scl >= -dec:
+            if not inside and dist_scl < pnt_scl:
+                ma_point[0] = init_point[0] - 10**(dist_scl-pnt_scl-1)
+
+            init_point = ma_point
+            init_point[0], init_point[1] = round(init_point[0], dec), round(init_point[1], dec)
+
+            self.read_out_point(init_point)
+            points = self.poin_points
+            ma_point = np.r_[np.mean(points[0::,0:2], axis=0), init_point[2]]
+
+            ma_points.append(ma_point)
+            if len(ma_points) > 10:
+                ma_point_chk = np.array(ma_points)
+                resR = np.correlate(ma_point_chk[0::,0], ma_point_chk[0::,0], mode='full')
+
+                hlf_idx = int(0.5*len(resR))
+                print('   Auto Correlation = {0:0.3f}'.format(resR[hlf_idx]))
+                if (resR[hlf_idx] > 0.5):
+                    ma_point = np.mean(ma_point_chk[10::], axis=0)
+                    ma_points = [ma_point]
+                    cnt+=1
+
+                    print('   {0} : ({1:0.4f}, {2:0.4f}, {3:0.4f})'.format(cnt, ma_point[0], ma_point[1], ma_point[2]))
+                    if cnt == 3:
+                        break
+
+            pnt_sep = np.max(points[0::,0]) - np.min(points[0::,0])
+            pnt_scl = np.floor(np.log10(pnt_sep))
+
+            dist = np.linalg.norm(ma_point - init_point)
+            dist_scl = np.floor(np.log10(dist))
+
+            path = mpltPath.Path(points[0::,0:2])
+            inside = path.contains_point(ma_point[0:2])
+
+        self.ma_point = np.round(ma_point[0:3], dec)
+        print('\n------------------------\n'
+              'Magnetic Axis Identified\n'+
+              '------------------------\n'+
+              'FLF Point ~ ({}, {}, {})'.format(self.ma_point[0], self.ma_point[1], self.ma_point[2]))
 
     def flux_surface_dimensionality(self, points):
         """ Calculate the flux surface pointwise dimensional and return flux surface score.
@@ -726,207 +780,71 @@ class flf_wrapper:
         # return np.hypot((1.-r_sq), (1.-slope))
         return slope-1.
 
-    def find_lcfs(self, init_point, dec_limit, r_limits, scan_res_limit=2, high_precission=True):
-        """ Approximately locate the LCFS and Magnetic Axis, represented as
-        (r,z,t) points initialized in the flf code.
+    def flf_surface(self, ma_points, surf_points):
+        """ Generates a B-field surface from the flf data provided by the
+        magnetic axis and the input initial field point.
 
         Parameters
         ----------
-        init_point: array
-            Initial point {r,z,t} from which radial steps are taken until a field-line is found
-            that does not leave the mgrid domain within the specified number of toroidal transits.
-            Initial steps are in 0.1 increments, but are then reduced by orders of magnitude as
-            the target surface is approached.
-        dec_limit: int
-            Number of decimal points in terminating step size.  This does not guarantee accuracy
-            to this decimal point.
-        r_limits: tuple
-            Radial limits of domain over which to perform scan. First and second 
-            elements are the minimal and maximal R values, repsectively.
-        scan_res_limit: int (optional)
-            The decimal point resolution the scan will go to. Default is 2.
-        high_precission: Bool (optional)
-            If True, then the pointwise dimension will be calculated for the LCFS to 
-            determine if the flux surface is ergodic or not. Default is True.
+        ma_pnt : arr
+            {r,z,t} point where magnetic axis is initialized.
+        surf_pnt : arr
+            {r,z,t} point where field line following will be initiated.  This
+            data will define the field surface that will be returned.
+
+        Returns
+        -------
+        arr
+            Array containing the surface field data, returned in array with
+            shape {360, rots, 4}.  The first index is the toroidal points, the
+            second index is the poloidal points and the third index provides
+            the R, Z, mod B and poloidal angles.
         """
-        print('\n----------------\n'
-              'Looking for LCFS\n'+
-              '----------------')
+        # Read Out parameters #
+        nitr = self.params['n_iter']
+        stps = int(2 * np.pi / self.params['points_dphi'])
+        rots = int( (nitr * self.params['points_dphi']) / (2*np.pi) )
+        idx_stps = [int(i*stps) for i in range(rots)]
 
-        scan_res = 1
-        first_contact = False
-        exceed_limit = False
-        r_init = init_point[0]
-        flf_points = self.read_out_point(init_point, return_poin_data=True)
-        while scan_res <= scan_res_limit:
-            dr_dom = np.logspace(-scan_res, -dec_limit, 1+dec_limit-scan_res)
-            for dr_scl in dr_dom:
-                stp_cnt = -1
-                if not first_contact and not exceed_limit:
-                    if np.isnan(flf_points).any():
-                        dr = -dr_scl
-                    else:
-                        dr = dr_scl
+        v_dom = surf_points[0::,2]
+        surf_ordered = np.empty((stps+1, rots, 5))
+        for v_idx, v in enumerate(ma_points[0::,2]):
+            idx_stps = np.argmin(np.abs(v_dom - v)) + [int(i*stps) for i in range(rots)]
+            stp_idx = np.argmin(np.abs(ma_points[0::,2] - v))
+            Rma, Zma = ma_points[stp_idx,0], ma_points[stp_idx,1]
 
-                    stp_cnt += 1
-                    init_point[0] += dr
-                    Dr_max = r_limits[1] - init_point[0]
-                    Dr_min = init_point[0] - r_limits[0]
-                    if (Dr_min <= 0) or (Dr_max <= 0):
-                        exceed_limit = True
-                        init_point[0] = r_init + .1*dr
-                        scan_res += 1
-                        break
-                else:
-                    dr = np.sign(dr)*dr_scl
+            vals = np.empty((rots,5))
+            for rot_idx, idx in enumerate(idx_stps):
+                r_val, z_val, B_mod = surf_points[idx][0], surf_points[idx][1], surf_points[idx][3]
+                pol = np.arctan2(z_val-Zma, r_val-Rma)
+                if pol < 0:
+                    pol = pol + 2*np.pi
+                vals[rot_idx] = np.array([r_val, z_val, v, B_mod, pol])
+            vals = np.array(sorted(vals, key=lambda x: x[4]))
+            surf_ordered[stp_idx] = vals
+        surf_ordered[-1] = surf_ordered[0]
 
-                while True:
-                    flf_points = self.read_out_point(init_point, return_poin_data=True)
-                    are_nans = np.isnan(flf_points).any()
-                    if are_nans and (dr > 0):
-                        break
-                    elif not are_nans and (dr < 0):
-                        break
-                    stp_cnt += 1
-                    init_point[0] += dr
-                    Dr_max = r_limits[1] - init_point[0]
-                    Dr_min = init_point[0] - r_limits[0]
-                    if (Dr_min <= 0) or (Dr_max <= 0):
-                        exceed_limit = True
-                        break
+        ma_ordered = np.empty(ma_points.shape)
+        ma_ordered = np.stack((ma_points[0:,0], ma_points[0:,2], ma_points[0:,1]), axis=1)
 
-                    if first_contact:
-                        if stp_cnt >= 8:
-                            break
+        return surf_ordered, ma_ordered
 
-                if (Dr_max <= 0) or (Dr_min <= 0):
-                    init_point[0] = r_init + .1*dr
-                    scan_res += 1
-                    break
-
-                else:
-                    first_contact = True
-                    scan_res = scan_res_limit+1
-                    if dr < 0:
-                        r_min = init_point[0]
-                        r_max = init_point[0] - dr
-                        init_point[0] = r_max + .1*dr
-                    else:
-                        r_min = init_point[0] - dr
-                        r_max = init_point[0]
-                        init_point[0] = r_min + .1*dr
-                    print('\n{0} < r_init < {1}'.format(round(r_min, dec_limit), round(r_max, dec_limit)))
-
-        if (Dr_max <= 0) or (Dr_min <= 0):
-            self.lcfs_point = np.full(3, np.nan)
-            warnings.warn("LCFS not found within radial limits.")
-        else:
-            init_point[0] = r_min
-            if high_precission:
-                print('\n-------------------------------\n'+
-                      'Beginning high precission phase\n'+
-                      '-------------------------------')
-                flf_points = self.read_out_point(init_point, return_poin_data=True)
-                fs_check = self.flux_surface_dimensionality(flf_points)
-                print('flux surface dimension = {}'.format(fs_check+1))
-                while fs_check > 0.05:
-                    init_point[0] -= np.abs(dr)
-                    flf_points = self.read_out_point(init_point, return_poin_data=True)
-                    print('flux surface dimension = {}'.format(fs_check+1))
-
-            self.lcfs_point = np.round(init_point, decimals=dec_limit)
-            print('\n---------------\n'
-                  'LCFS Identified\n'+
-                  '---------------\n'+
-                  'FLF Point ~ ({}, {}, {})'.format(self.lcfs_point[0], self.lcfs_point[1], self.lcfs_point[2]))
-        
-    def find_magnetic_axis(self, init_point, dec):
-        """  Approximately locate the Magnetic Axis, represented as (r,z,t)
-        points initialized in the flf code.
-
-        Parameters
-        ----------
-        init_point : arr
-            Initial guess for magnetic axis.  This needn't be a good guess, but
-            it should be on a closed flux surface for best results.
-        dec : int
-            Number of decimal points in approximation.  This does not guarantee
-            accuracy to this decimal point.
-        """
-        print('\n-------------------------\n'
-              'Looking for Magnetic Axis\n'+
-              '-------------------------')
-        points = self.read_out_point(init_point, return_poin_data=True, quiet=quiet)
-        ma_point = np.r_[np.mean(points[0::,0:2], axis=0), init_point[2]]
-
-        pnt_sep = np.max(points[0::,0]) - np.min(points[0::,0])
-        pnt_scl = np.floor(np.log10(pnt_sep))
-
-        dist = np.linalg.norm(ma_point - init_point)
-        dist_scl = np.floor(np.log10(dist))
-
-        path = mpltPath.Path(points[0::,0:2])
-        inside = path.contains_point(ma_point[0:2])
-
-        cnt = 0
-        ma_points = []
-        while dist_scl >= -dec:
-            if not inside and dist_scl < pnt_scl:
-                ma_point[0] = init_point[0] - 10**(dist_scl-pnt_scl-1)
-
-            init_point = ma_point
-            init_point[0], init_point[1] = round(init_point[0], dec), round(init_point[1], dec)
-
-            points = self.read_out_point(init_point, return_poin_data=True, quiet=quiet)
-            ma_point = np.r_[np.mean(points[0::,0:2], axis=0), init_point[2]]
-
-            ma_points.append(ma_point)
-            if len(ma_points) > 10:
-                ma_point_chk = np.array(ma_points)
-                resR = np.correlate(ma_point_chk[0::,0], ma_point_chk[0::,0], mode='full')
-
-                hlf_idx = int(0.5*len(resR))
-                print('   Auto Correlation = {0:0.3f}'.format(resR[hlf_idx]))
-                if (resR[hlf_idx] > 0.5):
-                    ma_point = np.mean(ma_point_chk[10::], axis=0)
-                    ma_points = [ma_point]
-                    cnt+=1
-
-                    print('   {0} : ({1:0.4f}, {2:0.4f}, {3:0.4f})'.format(cnt, ma_point[0], ma_point[1], ma_point[2]))
-                    if cnt == 3:
-                        break
-
-            pnt_sep = np.max(points[0::,0]) - np.min(points[0::,0])
-            pnt_scl = np.floor(np.log10(pnt_sep))
-
-            dist = np.linalg.norm(ma_point - init_point)
-            dist_scl = np.floor(np.log10(dist))
-
-            path = mpltPath.Path(points[0::,0:2])
-            inside = path.contains_point(ma_point[0:2])
-
-        self.ma_point = np.round(ma_point[0:3], dec)
-        print('\n------------------------\n'
-              'Magnetic Axis Identified\n'+
-              '------------------------\n'+
-              'FLF Point ~ ({}, {}, {})'.format(self.ma_point[0], self.ma_point[1], self.ma_point[2]))
-
-    def generate_descur_input(self, ma_point, surf_point, pol_pnts=20, tor_pnts=100, plot_data=False, save_path=os.getcwd(), quiet=True, clean=True):
+    def generate_descur_input(self, ma_point, surf_point, save_path, pol_pnts=20, tor_pnts=100, quiet=True, clean=True):
         """ Generate DESCUR input data for a flux surface.
 
         Parameters
         ----------
-        ma_point : arr
+        ma_point: arr
             Initial point for magnetic axis.
-        surf_point : arr
+        surf_point: arr
             Initial point for flux surface that will be converted to a DESCUR
             input file.
-        pol_pnts : int, optional
+        save_path: str
+            global path to where descur input will be saved.
+        pol_pnts: int, optional
             Number of poloidal points in DESCUR input. The default is 120.
-        tor_pnts : int, optional
+        tor_pnts: int, optional
             Number of toroidal points in DESCUR input. The default is 90.
-        save_path : str, optional
-            Global path to where descur input will be saved. Default is CWD.
         """
         nfp = int(self.params['num_periods'])
         u_pnts = int(pol_pnts * nfp)
@@ -946,7 +864,7 @@ class flf_wrapper:
         self.change_params(mod_dict)
         ma_points = self.execute_flf(ma_point, quiet=quiet, clean=clean)
         if points is None:
-            raise RuntimeError('FLF code failed on execution.')
+            raise RuntimeError('While following the magnetic axis, the FLF code failed.')
 
         npts = int(pol_pnts * stps)
         mod_dict = {'points_dphi' : dphi,
@@ -955,7 +873,7 @@ class flf_wrapper:
         self.change_params(mod_dict)
         surf_points = self.execute_flf(surf_point, quiet=quiet, clean=clean)
         if points is None:
-            raise RuntimeError('FLF code failed on execution.')
+            raise RuntimeError('While following the surface field line, the FLF code failed.')
 
         surf, ma = self.flf_surface(ma_points, surf_points, mod_dict)
 
@@ -972,15 +890,6 @@ class flf_wrapper:
 
             data_idx = int((i % v_pnts) * u_pnts) + int(np.floor(i / v_pnts)) + pol_idx
             fit_data[data_idx] = pol_vals
-
-        if plot_data == True:
-            x_data = fit_data[0::,0] * np.cos(fit_data[0::,1])
-            y_data = fit_data[0::,0] * np.sin(fit_data[0::,1])
-            z_data = fit_data[0::,2]
-
-            plot = pd.plot_define(proj3D=True)
-            plot.ax.scatter(x_data.flatten(), y_data.flatten(), z_data.flatten(), s=1)
-            plot.plt.show()
 
         with open(save_path, 'w') as file:
             file.write('{0} {1} {2}\n'.format(u_pnts, v_pnts, nfp))
@@ -1185,122 +1094,7 @@ class flf_wrapper:
         return psi_edge
 
 
-    def save_read_out_domain(self, data_key, pnt1, pnt2, nsurf, fileName='./poincare_set.h5', quiet=True, clean=True):
-        """ Save field line coordinate data for the specified number of field
-        lines, with each field line initialized along a line between two
-        points.  Makes hdf5 file.
-
-        Parameters
-        ----------
-        data_key : str
-            hdf5 data key to be saved.
-        pnt1 : arr
-            (r,z,t) point where read out line begins.
-        pnt2 : arr
-            (r,z,t) point where read out line ends.
-        nsurf : int
-            Number of field lines to be followed between pnt1 and pnt2, end
-            points inclused.
-        fileName : str, optional
-            Full path of hdf5 file to be saved. The default is './poincare_set.h5'.
-        """
-        # Poincare Points #
-        m = (pnt2[1] - pnt1[1]) / (pnt2[0] - pnt1[0])
-        b = -m*pnt1[0] + pnt1[1]
-
-        r_dom = np.linspace(pnt1[0], pnt2[0], nsurf)
-        z_dom = m * r_dom + b
-        t_dom = np.empty(nsurf)
-        t_dom[:] = pnt1[2]
-
-        init_points = np.stack([r_dom, z_dom, t_dom], axis=1)
-
-        # Run flf code #
-        points = np.empty((nsurf, self.params['n_iter'], 4))
-        for i, init in enumerate(init_points):
-            print('\nInitial Point {0} of {1} : '.format(i+1,nsurf)+'(%.4f, %.4f, %.4f)' % (init[0],init[1],init[2]))
-            pnts = self.execute_flf(init, quiet=quiet, clean=clean)
-            if pnts is None:
-                points[i,:,:] = np.nan
-            else:
-                points[i] = pnts
-
-        hf_file = hf.File(fileName, 'a')
-        hf_file.create_dataset(data_key, data=points)
-        hf_file.close()
-
-    def save_read_out_square(self, data_key, center_point, half_width, npts, fileName='./poincare_set.h5', quiet=True, clean=True):
-        """ Save field square coordinate data for the specified number of field
-        lines, with each field line initialized from a square grid centered
-        around the center point.  Makes hdf5 file.
-
-        Parameters
-        ----------
-        data_key : str
-            hdf5 data key to be saved.
-        center_point : arr
-            (r,z,t) point around which square grid is centered..
-        half_width : float
-            Half the width of the square..
-        npts : int
-            Approximate number of field lines to be followed
-            within the grid..
-        fileName : str, optional
-            Full path of hdf5 file to be saved. The default is './poincare_set.h5'.
-        """
-        # Poincare Points #
-        sqrt_pnts = int(round(np.sqrt(npts)))
-        npts = sqrt_pnts**2
-
-        r_dom = np.linspace(center_point[0]-half_width, center_point[0]+half_width, sqrt_pnts)
-        z_dom = np.linspace(center_point[1]-half_width, center_point[1]+half_width, sqrt_pnts)
-        t_dom = center_point[2]
-
-        r_grid, z_grid, t_grid = np.meshgrid(r_dom, z_dom, t_dom)
-        init_points = np.stack((r_grid, z_grid, t_grid), axis=3)
-        init_points = init_points.flatten().reshape(npts, 3)
-
-        # Run flf code #
-        points = np.empty((npts, self.params['n_iter'], 4))
-        for i, init in enumerate(init_points):
-            print('\nInitial Point {0} of {1}: '.format(i+1, npts)+'(%.4f, %.4f, %.4f)' % (init[0], init[1], init[2]))
-            if i+1 == init_points.shape[0]:
-                points[i] = self.execute_flf(init, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
-            else:
-                points[i] = self.execute_flf(init, quiet=quiet, clean=clean)
-                if points is None:
-                    raise RuntimeError('FLF code failed on execution.')
-
-        hf_file = hf.File(fileName, 'a')
-        hf_file.create_dataset(data_key, data=points)
-        hf_file.close()
-
-    def save_read_out_line(self, data_key, init_point, fileName='./poincare_set.h5', quiet=True, clean=True):
-        """ Save single field line coordinate data.  Makes hdf5 file.
-
-        Parameters
-        ----------
-        data_key : str
-            hdf5 data key to be saved.
-        init_point : arr
-            (r,z,t) point from which field line following will be done.
-        fileName : str, optional
-            Full path of hdf5 file to be saved. The default is
-            './poincare_set.h5'.
-        """
-        # Run flf code #
-        print('\nInitial Point : (%.4f, %.4f, %.4f)' % (init_point[0],init_point[1],init_point[2]))
-        points = self.execute_flf(init_point, quiet=quiet, clean=clean)
-        if points is None:
-            raise RuntimeError('FLF code failed on execution.')
-
-        hf_file = hf.File(fileName, 'a')
-        hf_file.create_dataset(data_key, data=points)
-        hf_file.close()
-
-    def save_Bvec_data(self, data_key, fileName='./poincare_set.h5', quiet=True, clean=True):
+    def read_Bvec_data(self, data_key, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save magnetic field vectors at the cylidrical points specified in
         the imported grid array.  Makes hdf5 file.
 
@@ -1338,20 +1132,19 @@ class flf_wrapper:
 
         if ndim == 3:
             vec_points = np.empty(points.shape)
-            for i in range(points.shape[0]):
-                vec_points[i] = self.execute_flf(points[i,0::,0:3], quiet=quiet, clean=clean)
-                if vec_points is None:
-                    raise RuntimeError('FLF code failed on execution.')
+            for i, point in enumerate(points):
+                exe_point = self.execute_flf(point[:, 0:3], quiet=quiet, clean=clean)
+                if not exe_point is None:
+                    vec_points[i] = exe_point
         elif ndim == 2:
-            vec_points = self.execute_flf(points, quiet=quiet, clean=clean)
-            if vec_points is None:
-                raise RuntimeError('FLF code failed on execution.')
+            exe_point = self.execute_flf(points, quiet=quiet, clean=clean)
+            if not exe_point is None:
+                vec_points[i] = exe_point
 
         # Save Vector data #
         hf_file = hf.File(fileName, 'a')
         hf_file.create_dataset(data_key+' Bvec', data=vec_points)
         hf_file.close()
-
 
 if __name__ == '__main__':
     # main, aux = functions.readCrntConfig('0-3-84')
@@ -1364,5 +1157,8 @@ if __name__ == '__main__':
     flf.change_params(mod_dict)
     flf.set_transit_parameters(5, 500)
 
-    init_point = np.array([1.5188, 0., 0.]) 
-    flf.find_lcfs(init_point, 4, [0., 2.], high_precission=False)
+    init_point = np.array([1.5, 0, 0.25*np.pi])
+    flf.find_lcfs(init_point, 4, [0, 2])
+    flf.find_magnetic_axis(flf.lcfs_point, 4)
+    flf.read_out_domain(flf.ma_point, flf.lcfs_point, 25)
+    flf.plot_poincare_data()
