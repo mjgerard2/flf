@@ -92,7 +92,7 @@ class flf_wrapper:
         self.namelist = os.path.join(self.wrapper_dir, file_dict['namelist'])
         self.in_path = os.path.join(self.wrapper_dir, file_dict['input'])
         self.run_cmd = shlex.split('%s %s' % (self.exe, self.namelist))
-        
+
         self.exp = exp
         self.params = ep.params[exp]
 
@@ -334,7 +334,7 @@ class flf_wrapper:
         idx_stps = [int(i*stps) for i in range(rots)]
 
         # Run flf code #
-        print('\nInitial Point : (%.4f, %.4f, %.4f)' % (init_point[0],init_point[1],init_point[2]))
+        print('Initial Point : (%.4f, %.4f, %.4f)\n' % (init_point[0],init_point[1],init_point[2]))
         points = self.execute_flf(init_point, quiet=quiet, clean=clean)
         if points is None:
             self.exe_points = np.full((nitr, 4), np.nan)
@@ -371,7 +371,7 @@ class flf_wrapper:
         self.poin_points = np.full((init_points.shape[0], rots, 4), np.nan)
         for idx, init_point in enumerate(init_points):
             poin_pnts = np.empty((rots, 4))
-            print('\nInitial Point {0:0.0f} of {1:0.0f} : '.format(idx+1, init_points.shape[0])+'(%.4f, %.4f, %.4f)' % (init_point[0],init_point[1],init_point[2]))
+            print('Initial Point {0:0.0f} of {1:0.0f} : ({2:0.4f}, {3:0.4f}, {4:0.4f})\n'.format(idx+1, init_points.shape[0], init_point[0],init_point[1],init_point[2]))
             points = self.execute_flf(init_point, quiet=quiet, clean=clean)
             if not points is None:
                 self.exe_points[idx] = points
@@ -413,7 +413,7 @@ class flf_wrapper:
         self.exe_points = np.full((nsurf, nitr, 4), np.nan)
         self.poin_points = np.full((nsurf, rots, 4), np.nan)
         for i, init in enumerate(init_points):
-            print('\nInitial Point {0} of {1} : '.format(i+1,nsurf)+'(%.4f, %.4f, %.4f)' % (init[0],init[1],init[2]))
+            print('Initial Point {0} of {1} : ({2:0.4f}, {3:0.4f}, {4:0.4f})\n'.format(i+1,nsurf, init[0],init[1],init[2]))
             points = self.execute_flf(init, quiet=quiet, clean=clean)
             if not points is None:
                 self.exe_points[i] = points
@@ -455,7 +455,7 @@ class flf_wrapper:
         self.exe_points = np.full((npts, nitr, 4), np.nan)
         self.poin_points = np.full((npts, rots, 4), np.nan)
         for i, init in enumerate(init_points):
-            print('\nInitial Point {0} of {1}: '.format(i+1, npts)+'(%.4f, %.4f, %.4f)' % (init[0], init[1], init[2]))
+            print('\nInitial Point {0} of {1} : ({2:0.4f}, {3:0.4f}, {4:0.4f})\n'.format(i+1, npts, init[0], init[1], init[2]))
             points = self.execute_flf(init, quiet=quiet, clean=clean)
             if not points is None:
                 self.exe_points[i] = points
@@ -490,7 +490,7 @@ class flf_wrapper:
         self.plotting()
         fig, ax = plt.subplots(tight_layout=True)
         ax.set_aspect('equal')
-        
+
         # plot data #
         poin_data = self.poin_points
         if poin_data.ndim == 3:
@@ -527,7 +527,7 @@ class flf_wrapper:
             Hdf5 data key that the data will be saved under.
         """
         with hf.File(save_path, 'a') as hf_:
-            hf_.create_dataset(data_key, data=self.poin_data)
+            hf_.create_dataset(data_key, data=self.poin_points)
 
     def save_exe_data(self, save_path, data_key):
         """ Save data output from the flf code as hdf5 file.
@@ -540,7 +540,7 @@ class flf_wrapper:
             Hdf5 data key that the data will be saved under.
         """
         with hf.File(save_path, 'a') as hf_:
-            hf_.create_dataset(data_key, data=self.exe_data)
+            hf_.create_dataset(data_key, data=self.exe_points)
 
     def find_lcfs(self, init_point, dec_limit, r_limits, scan_res_limit=2, high_precission=True):
         """ Approximately locate the LCFS and Magnetic Axis, represented as
@@ -557,29 +557,29 @@ class flf_wrapper:
             Number of decimal points in terminating step size.  This does not guarantee accuracy
             to this decimal point.
         r_limits: tuple
-            Radial limits of domain over which to perform scan. First and second 
+            Radial limits of domain over which to perform scan. First and second
             elements are the minimal and maximal R values, repsectively.
         scan_res_limit: int (optional)
             The decimal point resolution the scan will go to. Default is 2.
         high_precission: Bool (optional)
-            If True, then the pointwise dimension will be calculated for the LCFS to 
+            If True, then the pointwise dimension will be calculated for the LCFS to
             determine if the flux surface is ergodic or not. Default is True.
         """
-        print('\n----------------\n'
+        print('----------------\n'
               'Looking for LCFS\n'+
-              '----------------')
+              '----------------\n')
+        init_point = np.round(init_point, decimals=dec_limit)
         scan_res = 1
         first_contact = False
         exceed_limit = False
         r_init = init_point[0]
         self.read_out_point(init_point)
-        flf_points = flf.exe_points
         while scan_res <= scan_res_limit:
             dr_dom = np.logspace(-scan_res, -dec_limit, 1+dec_limit-scan_res)
             for dr_scl in dr_dom:
                 stp_cnt = -1
                 if not first_contact and not exceed_limit:
-                    if np.isnan(flf_points).any():
+                    if np.isnan(self.exe_points).any():
                         dr = -dr_scl
                     else:
                         dr = dr_scl
@@ -598,8 +598,7 @@ class flf_wrapper:
 
                 while True:
                     self.read_out_point(init_point)
-                    flf_points = flf.exe_points
-                    are_nans = np.isnan(flf_points).any()
+                    are_nans = np.isnan(self.exe_points).any()
                     if are_nans and (dr > 0):
                         break
                     elif not are_nans and (dr < 0):
@@ -632,7 +631,7 @@ class flf_wrapper:
                         r_min = init_point[0] - dr
                         r_max = init_point[0]
                         init_point[0] = r_min + .1*dr
-                    print('\n{0} < r_init < {1}'.format(round(r_min, dec_limit), round(r_max, dec_limit)))
+                    print('{0} < r_init < {1}\n'.format(round(r_min, dec_limit), round(r_max, dec_limit)))
 
         if (Dr_max <= 0) or (Dr_min <= 0):
             self.lcfs_point = np.full(3, np.nan)
@@ -640,27 +639,25 @@ class flf_wrapper:
         else:
             init_point[0] = r_min
             if high_precission:
-                print('\n-------------------------------\n'+
+                print('-------------------------------\n'+
                       'Beginning high precission phase\n'+
-                      '-------------------------------')
+                      '-------------------------------\n')
                 self.read_out_point(init_point)
-                flf_points = self.poin_points
-                fs_check = self.flux_surface_dimensionality(flf_points)
-                print('flux surface dimension = {}'.format(fs_check+1))
+                fs_check = self.flux_surface_dimensionality(self.poin_points)
+                print('flux surface dimension = {}\n'.format(fs_check+1))
                 while fs_check > 0.05:
                     init_point[0] -= np.abs(dr)
                     self.read_out_point(init_point)
-                    flf_points = self.poin_points
-                    fs_check = self.flux_surface_dimensionality(flf_points)
-                    print('flux surface dimension = {}'.format(fs_check+1))
+                    fs_check = self.flux_surface_dimensionality(self.poin_points)
+                    print('flux surface dimension = {}\n'.format(fs_check+1))
 
             self.lcfs_point = np.round(init_point, decimals=dec_limit)
-            print('\n---------------\n'
+            print('---------------\n'
                   'LCFS Identified\n'+
                   '---------------\n'+
-                  'FLF Point ~ ({}, {}, {})'.format(self.lcfs_point[0], self.lcfs_point[1], self.lcfs_point[2]))
-        
-    def find_magnetic_axis(self, init_point, dec):
+                  'FLF Point ~ ({}, {}, {})\n'.format(self.lcfs_point[0], self.lcfs_point[1], self.lcfs_point[2]))
+
+    def find_magnetic_axis(self, init_point, dec_limit):
         """  Approximately locate the Magnetic Axis, represented as (r,z,t)
         points initialized in the flf code.
 
@@ -669,38 +666,35 @@ class flf_wrapper:
         init_point : arr
             Initial guess for magnetic axis.  This needn't be a good guess, but
             it should be on a closed flux surface for best results.
-        dec : int
+        dec_limit : int
             Number of decimal points in approximation.  This does not guarantee
             accuracy to this decimal point.
         """
-        print('\n-------------------------\n'
+        print('-------------------------\n'
               'Looking for Magnetic Axis\n'+
-              '-------------------------')
+              '-------------------------\n')
+        init_point = np.round(init_point, decimals=dec_limit)
         self.read_out_point(init_point)
-        points = self.poin_points
-        ma_point = np.r_[np.mean(points[0::,0:2], axis=0), init_point[2]]
+        ma_point = np.round(np.r_[np.mean(self.poin_points[0::,0:2], axis=0), init_point[2]], decimals=dec_limit)
 
-        pnt_sep = np.max(points[0::,0]) - np.min(points[0::,0])
+        pnt_sep = np.max(self.poin_points[0::,0]) - np.min(self.poin_points[0::,0])
         pnt_scl = np.floor(np.log10(pnt_sep))
 
         dist = np.linalg.norm(ma_point - init_point)
         dist_scl = np.floor(np.log10(dist))
 
-        path = mpltPath.Path(points[0::,0:2])
+        path = mpltPath.Path(self.poin_points[0::,0:2])
         inside = path.contains_point(ma_point[0:2])
 
         cnt = 0
         ma_points = []
-        while dist_scl >= -dec:
+        while dist_scl >= -dec_limit:
             if not inside and dist_scl < pnt_scl:
                 ma_point[0] = init_point[0] - 10**(dist_scl-pnt_scl-1)
 
             init_point = ma_point
-            init_point[0], init_point[1] = round(init_point[0], dec), round(init_point[1], dec)
-
             self.read_out_point(init_point)
-            points = self.poin_points
-            ma_point = np.r_[np.mean(points[0::,0:2], axis=0), init_point[2]]
+            ma_point = np.round(np.r_[np.mean(self.poin_points[0::,0:2], axis=0), init_point[2]], decimals=dec_limit)
 
             ma_points.append(ma_point)
             if len(ma_points) > 10:
@@ -708,30 +702,34 @@ class flf_wrapper:
                 resR = np.correlate(ma_point_chk[0::,0], ma_point_chk[0::,0], mode='full')
 
                 hlf_idx = int(0.5*len(resR))
-                print('   Auto Correlation = {0:0.3f}'.format(resR[hlf_idx]))
+                print('   Auto Correlation = {0:0.3f}\n'.format(resR[hlf_idx]))
                 if (resR[hlf_idx] > 0.5):
-                    ma_point = np.mean(ma_point_chk[10::], axis=0)
+                    ma_point = np.round(np.mean(ma_point_chk[10::], axis=0), decimals=dec_limit)
                     ma_points = [ma_point]
                     cnt+=1
 
-                    print('   {0} : ({1:0.4f}, {2:0.4f}, {3:0.4f})'.format(cnt, ma_point[0], ma_point[1], ma_point[2]))
+                    print('   {0} : ({1:0.4f}, {2:0.4f}, {3:0.4f})\n'.format(cnt, ma_point[0], ma_point[1], ma_point[2]))
                     if cnt == 3:
                         break
 
-            pnt_sep = np.max(points[0::,0]) - np.min(points[0::,0])
+            pnt_sep = np.max(self.poin_points[0::,0]) - np.min(self.poin_points[0::,0])
             pnt_scl = np.floor(np.log10(pnt_sep))
 
             dist = np.linalg.norm(ma_point - init_point)
-            dist_scl = np.floor(np.log10(dist))
+            if dist == 0:
+                path = mpltPath.Path(self.poin_points[0::,0:2])
+                inside = path.contains_point(ma_point[0:2])
+                break
+            else:
+                path = mpltPath.Path(self.poin_points[0::,0:2])
+                inside = path.contains_point(ma_point[0:2])
+                dist_scl = np.floor(np.log10(dist))
 
-            path = mpltPath.Path(points[0::,0:2])
-            inside = path.contains_point(ma_point[0:2])
-
-        self.ma_point = np.round(ma_point[0:3], dec)
-        print('\n------------------------\n'
+        self.ma_point = ma_point
+        print('------------------------\n'
               'Magnetic Axis Identified\n'+
               '------------------------\n'+
-              'FLF Point ~ ({}, {}, {})'.format(self.ma_point[0], self.ma_point[1], self.ma_point[2]))
+              'FLF Point ~ ({}, {}, {})\n'.format(self.ma_point[0], self.ma_point[1], self.ma_point[2]))
 
     def flux_surface_dimensionality(self, points):
         """ Calculate the flux surface pointwise dimensional and return flux surface score.
@@ -1147,18 +1145,14 @@ class flf_wrapper:
         hf_file.close()
 
 if __name__ == '__main__':
-    # main, aux = functions.readCrntConfig('0-3-84')
-    main = np.ones(6)
-    aux = np.zeros(6)
-    crnt = -10722. * np.r_[main, 14*aux]
-    mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt])}
-
+    # instantiate flf object #
     flf = flf_wrapper('HSX')
-    flf.change_params(mod_dict)
     flf.set_transit_parameters(5, 500)
 
-    init_point = np.array([1.5, 0, 0.25*np.pi])
+    init_point = np.array([1.6, 0., 0.])
     flf.find_lcfs(init_point, 4, [0, 2])
     flf.find_magnetic_axis(flf.lcfs_point, 4)
-    flf.read_out_domain(flf.ma_point, flf.lcfs_point, 25)
+    flf.read_out_domain(flf.ma_point, flf.lcfs_point, 10)
+
     flf.plot_poincare_data()
+    flf.save_poincare_data(os.path.join(flf.wrapper_dir, 'poincare.h5'), 'core')
