@@ -103,7 +103,7 @@ class flf_wrapper:
                        '  points_number={}\n'.format(self.params['points_number']) +
                        '  follow_type={}\n'.format(self.params['follow_type']) +
                        '  points_dphi= {}\n'.format(self.params['points_dphi']) +
-                       '  n_iter = {}\n'.format(self.params['n_iter']-1) +
+                       '  n_iter = {}\n'.format(self.params['n_iter']) +
                        '  output_coils = {}\n'.format(self.params['output_coils']) +
                        '  log_freq = {}\n'.format(self.params['log_freq']) +
                        '  vessel_file = \'{}\''.format(self.params['vessel_file']) +
@@ -145,7 +145,7 @@ class flf_wrapper:
                        '  points_number={}\n'.format(self.params['points_number']) +
                        '  follow_type={}\n'.format(self.params['follow_type']) +
                        '  points_dphi= {}\n'.format(self.params['points_dphi']) +
-                       '  n_iter = {}\n'.format(self.params['n_iter']-1) +
+                       '  n_iter = {}\n'.format(self.params['n_iter']) +
                        '  output_coils = {}\n'.format(self.params['output_coils']) +
                        '  log_freq = {}\n'.format(self.params['log_freq']) +
                        '  vessel_file = \'{}\''.format(self.params['vessel_file']) +
@@ -179,13 +179,15 @@ class flf_wrapper:
         rots : int
             Number of toroidal transits.
         """
-        dphi = dstp * (np.pi/180)
-        stps = int(2 * np.pi / dphi)
-        npts = int(rots*stps)
-
-        mod_dict = {'points_dphi': dphi,
-                    'n_iter': npts}
-
+        if self.params['follow_type'] == 1:
+            dphi = dstp * (np.pi/180)
+            stps = int(2 * np.pi / dphi)
+            npts = int(rots*stps)
+            mod_dict = {'points_dphi': dphi,
+                        'n_iter': npts}
+        elif self.params['follow_type'] == 2:
+            mod_dict = {'points_dphi': dstp,
+                        'n_iter': rots}
         self.change_params(mod_dict)
 
     def execute_flf(self, init_point, quiet=True, clean=True):
@@ -220,7 +222,7 @@ class flf_wrapper:
         # Read Relevant Parameters #
         genOpt = self.params['general_option']
         pNum = self.params['points_number']
-        nItr = self.params['n_iter']
+        nItr = self.params['n_iter']+1
 
         # Construct flf input file #
         with open(self.in_path, 'w') as file:
