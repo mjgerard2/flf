@@ -106,6 +106,7 @@ class flf_wrapper:
                        '  n_iter = {}\n'.format(self.params['n_iter']-1) +
                        '  output_coils = {}\n'.format(self.params['output_coils']) +
                        '  log_freq = {}\n'.format(self.params['log_freq']) +
+                       '  vessel_file = \'{}\''.format(self.params['vessel_file']) +
                        '\n' +
                        '  num_main_coils = {}\n'.format(self.params['num_main_coils']) +
                        '  field_type = \'netcdf\'\n' +
@@ -147,6 +148,7 @@ class flf_wrapper:
                        '  n_iter = {}\n'.format(self.params['n_iter']-1) +
                        '  output_coils = {}\n'.format(self.params['output_coils']) +
                        '  log_freq = {}\n'.format(self.params['log_freq']) +
+                       '  vessel_file = \'{}\''.format(self.params['vessel_file']) +
                        '\n' +
                        '  num_main_coils = {}\n'.format(self.params['num_main_coils']) +
                        '  field_type = \'netcdf\'\n' +
@@ -238,12 +240,12 @@ class flf_wrapper:
         # check for errors in execution #
         if len(flf_err) > 0:
             if clean:
-                res_file = os.path.join(self.wrapper_dir, 'results.out')
-                if os.path.isfile(res_file):
-                    cmnd = shlex.split('rm %s %s %s' % (self.namelist, self.in_path, res_file))
-                else:
-                    cmnd = shlex.split('rm %s %s' % (self.namelist, self.in_path))
-                subprocess.run(cmnd)
+                if os.path.isfile(self.namelist):
+                    cmnd = shlex.split('rm %s' % self.namelist)
+                    subprocess.run(cmnd)
+                if os.path.isfile(self.in_path):
+                    cmnd = shlex.split('rm %s' % self.in_path)
+                    subprocess.run(cmnd)
             if quiet:
                 return None
             else:
@@ -300,12 +302,12 @@ class flf_wrapper:
 
         # Delete I/O files #
         if clean:
-            res_file = os.path.join(self.wrapper_dir, 'results.out')
-            if os.path.isfile(res_file):
-                cmnd = shlex.split('rm %s %s %s' % (self.namelist, self.in_path, res_file))
-            else:
-                cmnd = shlex.split('rm %s %s' % (self.namelist, self.in_path))
-            subprocess.run(cmnd)
+            if os.path.isfile(self.namelist):
+                cmnd = shlex.split('rm %s' % self.namelist)
+                subprocess.run(cmnd)
+            if os.path.isfile(self.in_path):
+                cmnd = shlex.split('rm %s' % self.in_path)
+                subprocess.run(cmnd)
 
         # Return flf results #
         return points
