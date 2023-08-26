@@ -46,15 +46,20 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
             run_idx, R_val = item
             lyp_exponent = np.empty(Z_dom.shape)
             for i, Z_val in enumerate(Z_dom):
+                # print('{0}: ({1:0.0f}|{2:0.0f})'.format(pid, i+1, Z_dom.shape[0]))
                 init_pnt = np.array([R_val, Z_val, tor_ang])
                 mod_dict['n_iter'] = nitr
                 mod_dict['points_dphi'] = dphi
+                # print('change parameters: forward step')
                 flf.change_params(mod_dict)
                 # print('points_dphi = {}\nn_iter = {}\nphi_max = {}\n'.format(flf.params['points_dphi'], flf.params['n_iter'], flf.params['points_dphi']*flf.params['n_iter']))
+                # print('execute flf: forward step')
                 pnt_for = flf.execute_flf(init_pnt)
                 mod_dict['points_dphi'] = -dphi
+                # print('change parameters: backward step')
                 flf.change_params(mod_dict)
                 # print('points_dphi = {}\nn_iter = {}\nphi_max = {}\n'.format(flf.params['points_dphi'], flf.params['n_iter'], flf.params['points_dphi']*flf.params['n_iter']))
+                # print('execute flf: bakward step')
                 pnt_bak = flf.execute_flf(init_pnt)
                 if (pnt_for is None) or (pnt_bak is None):
                     lyp_exponent[i] = np.nan
@@ -84,6 +89,7 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
                 mod_dict['n_iter'] = round(phi_max/dphi)
                 flf.change_params(mod_dict)
                 for k in range(npts):
+                    # print('   {0}: ({1:0.0f}|{2:0.0f})'.format(pid, k+1, npts))
                     x_data = np.linspace(-phi_max, phi_max, pnt_for.shape[0]+pnt_bak.shape[0]-1).reshape((-1,1))
                     # print('base x_data.shape = {}'.format(x_data.shape[0]))
                     d_shft = d0*np.array([np.cos(pnt_ang[k]), np.sin(pnt_ang[k]), 0])
@@ -141,12 +147,9 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
             print('({0:0.0f}|{1:0.0f})'.format(run_idx+1, run_cnt))
             out_que.put([run_idx, lyp_exponent])
 
-    for key, name in file_dict.items():
-        file_path = os.path.join('/home', 'michael', name)
-        subprocess.run(['rm', file_path])
 
 # Number of CPUs to use #
-num_of_cpus = 4 # cpu_count()-1
+num_of_cpus = cpu_count()-1
 print('Number of CPUs: {0:0.0f}'.format(num_of_cpus))
 
 config_id = '0-1-0'
@@ -154,9 +157,9 @@ main = np.ones(6)
 aux = np.zeros(6)
 crnt = -10722. * np.r_[main, 14*aux]
 mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt]), 
-            'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_res1p0mm_30pln.nc')}
+            'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_hsx_wmain.nc')}
 
-date_tag = 'test' # datetime.now().strftime('%Y%m%d')
+date_tag = datetime.now().strftime('%Y%m%d')
 run_dict = {'dx': 5e-3, # spatial separation of sample points in meters
             'tor_ang': 0, # toroidal angle of cross section
             'dstp': 5, # angular step size in field line following

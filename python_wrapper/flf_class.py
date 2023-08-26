@@ -240,7 +240,7 @@ class flf_wrapper:
         flf_err = proc.stderr.decode('utf-8').split('\n')[0:-1]
 
         # check for errors in execution #
-        if len(flf_err) > 0:
+        if len(flf_err) > 0 and len(flf_out) == 2:
             if clean:
                 if os.path.isfile(self.namelist):
                     cmnd = shlex.split('rm %s' % self.namelist)
@@ -1151,12 +1151,8 @@ class flf_wrapper:
 if __name__ == '__main__':
     # instantiate flf object #
     flf = flf_wrapper('HSX')
-    flf.set_transit_parameters(5, 500)
+    flf.set_transit_parameters(5, 5)
 
-    init_point = np.array([1.6, 0., 0.])
-    flf.find_lcfs(init_point, 4, [0, 2])
-    flf.find_magnetic_axis(flf.lcfs_point, 4)
-    flf.read_out_domain(flf.ma_point, flf.lcfs_point, 10)
-
-    flf.plot_poincare_data()
-    flf.save_poincare_data(os.path.join(flf.wrapper_dir, 'poincare.h5'), 'core')
+    init_point = np.array([1.35, 0.05, 0.])
+    flf.read_out_point(init_point, clean=False)
+    print(flf.exe_points)
