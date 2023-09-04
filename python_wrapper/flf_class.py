@@ -1095,6 +1095,76 @@ class flf_wrapper:
 
         return psi_edge
 
+    def calc_lyapunov_exponent(self, init_point, d0, npts, dstp, rots):
+        dphi = dstp * (np.pi/180)
+        stps = round(2 * np.pi / dphi)
+        nitr = round(rots*stps)
+        pnt_ang = np.linspace(0, 2*np.pi, nitr, endpoint=False)
+
+        # follow forward #
+        mod_dict = {'n_iter': nitr,
+                    'points_dphi': dphi}
+        self.change_params(mod_dict)
+        pnt_for = self.execute_flf(init_point)
+
+        # follow backward #
+        mod_dict['points_dphi'] = -dphi
+        self.change_params(mod_dict)
+        pnt_bak = self.execute_flf(init_point)
+
+        # check for nans #
+        if (pnt_for is None) or (pnt_bak is None):
+            return phi_dom, None, None
+        elif np.isnan(pnt_for).any() or np.isnan(pnt_bak).any():
+            not_nan = np.isnan(pnt_for[:,0])
+            pnt_for = pnt_for[~not_nan]
+            not_nan = np.isnan(pnt_bak[:,0])
+            pnt_bak = pnt_bak[~not_nan]
+            if pnt_for.shape[0] <= 2 or pnt_bak.shape[0] <= 2:
+                return phi_dom, None, None
+            phi_max = min(np.max(pnt_for[:,2]), np.max(np.abs(pnt_bak[:,2])))
+            pnt_for = pnt_for[pnt_for[:,2] <= phi_max]
+            pnt_bak = pnt_bak[pnt_bak[:,2] >= -phi_max]
+        else:
+            phi_max = 2*np.pi*rots
+
+        succ = True
+        mod_dict['points_dphi'] = dphi
+        mod_dict['n_iter'] = round(phi_max/dphi)
+        phi_dom = init_point[2] + np.linspace(0, dphi*mod_dict['n_iter'], mod_dict['n_iter']+1)
+        self.change_params(mod_dict)
+        # follow displaced field lines #
+        dist_for = np.full((npts, pnt_for.shape[0]), np.nan)
+        dist_bak = np.full((npts, pnt_bak.shape[0]), np.nan)
+        for k in range(npts):
+            d_shft = d0*np.array([np.cos(pnt_ang[k]), np.sin(pnt_ang[k]), 0])
+            pnts_for = self.execute_flf(init_point+d_shft)
+            mod_dict['points_dphi'] = -dphi
+            self.change_params(mod_dict)
+            pnts_bak = self.execute_flf(init_point+d_shft)
+            if (pnts_for is None) or (pnts_bak is None):
+                continue
+            elif np.isnan(pnts_for).any() or np.isnan(pnts_bak).any():
+                not_nan = np.isnan(pnts_for[:,0])
+                pnts_for = pnts_for[~not_nan]
+                not_nan = np.isnan(pnts_bak[:,0])
+                pnts_bak = pnts_bak[~not_nan]
+                phi_chk = min(np.max(pnts_for[:,2]), np.max(np.abs(pnts_bak[:,2])))
+                pnts_for = pnts_for[pnts_for[:,2] <= phi_chk]
+                pnts_bak = pnts_bak[pnts_bak[:,2] >= -phi_chk]
+                if pnts_for.shape[0] <= 2 or pnts_bak.shape[0] <= 2:
+                    continue
+                pnt_for_use = pnt_for[pnt_for[:,2] <= phi_chk]
+                pnt_bak_use = pnt_bak[pnt_bak[:,2] >= -phi_chk]
+            else:
+                pnt_for_use = pnt_for
+                pnt_bak_use = pnt_bak
+            dfor = np.linalg.norm(pnt_for_use[:, 0:2] - pnts_for[:, 0:2], axis=1)/d0
+            dbak = np.linalg.norm(pnt_bak_use[:, 0:2] - pnts_bak[:, 0:2], axis=1)/d0
+            dist_for[k, 0:dfor.shape[0]] = dfor
+            dist_bak[k, 0:dbak.shape[0]] = dbak
+        
+        return phi_dom, dist_for, dist_bak
 
     def read_Bvec_data(self, data_key, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save magnetic field vectors at the cylidrical points specified in
@@ -1151,8 +1221,39 @@ class flf_wrapper:
 if __name__ == '__main__':
     # instantiate flf object #
     flf = flf_wrapper('HSX')
-    flf.set_transit_parameters(5, 5)
+    
+    init_point = np.array([1.5, 0.1, 0])
+    d0 = 1e-4
+    npts = 3
+    dstp = 1
+    rots = 5
+    phi_dom, dist_for, dist_bak = flf.calc_lyapunov_exponent(init_point, d0, npts, dstp, rots)
+    flf.plotting()
+    clrs = ['tab:blue', 'tab:red', 'tab:green']
+    fig, axs = plt.subplots(1, 2, sharex=True, sharey=True, tight_layout=True, figsize=(12, 6))
 
-    init_point = np.array([1.35, 0.05, 0.])
-    flf.read_out_point(init_point, clean=False)
-    print(flf.exe_points)
+    phi_norm = phi_dom / np.pi
+    axs[0].plot(phi_norm, dist_for[0,:], c=clrs[0])
+    axs[0].plot(phi_norm, dist_for[1,:], c=clrs[1])
+    axs[0].plot(phi_norm, dist_for[2,:], c=clrs[2])
+    
+    axs[1].plot(phi_norm, dist_bak[0,:], c=clrs[0])
+    axs[1].plot(phi_norm, dist_bak[1,:], c=clrs[1])
+    axs[1].plot(phi_norm, dist_bak[2,:], c=clrs[2])
+
+    axs[0].set_xlim(phi_norm[0], phi_norm[-1])
+    axs[0].set_ylim(1, axs[0].get_ylim()[1])
+
+    axs[0].set_xlabel(r'$\varphi/\pi$')
+    axs[1].set_xlabel(r'$\varphi/\pi$')
+    axs[0].set_ylabel(r'$\delta/\delta_0$')
+
+    axs[0].set_title('forward')
+    axs[1].set_title('bakward')
+
+    axs[0].grid()
+    axs[1].grid()
+    axs[0].set_yscale('log')
+    axs[1].set_yscale('log')
+
+    plt.show()

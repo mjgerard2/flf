@@ -35,7 +35,6 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
     flf = flfc.flf_wrapper('HSX', file_dict=file_dict)
 
     pnt_ang = np.linspace(0, 2*np.pi, nitr, endpoint=False)
-    # x_data = np.linspace(-rots, rots, 2*flf.params['n_iter']-1).reshape((-1, 1))
 
     while True:
         item = in_que.get()
@@ -44,25 +43,18 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
             break
         else:
             run_idx, R_val = item
-            lyp_exponent = np.empty(Z_dom.shape)
+            lyp_exponent = np.empty((Z_dom.shape[0], 2))
             for i, Z_val in enumerate(Z_dom):
-                # print('{0}: ({1:0.0f}|{2:0.0f})'.format(pid, i+1, Z_dom.shape[0]))
                 init_pnt = np.array([R_val, Z_val, tor_ang])
                 mod_dict['n_iter'] = nitr
                 mod_dict['points_dphi'] = dphi
-                # print('change parameters: forward step')
                 flf.change_params(mod_dict)
-                # print('points_dphi = {}\nn_iter = {}\nphi_max = {}\n'.format(flf.params['points_dphi'], flf.params['n_iter'], flf.params['points_dphi']*flf.params['n_iter']))
-                # print('execute flf: forward step')
                 pnt_for = flf.execute_flf(init_pnt)
                 mod_dict['points_dphi'] = -dphi
-                # print('change parameters: backward step')
                 flf.change_params(mod_dict)
-                # print('points_dphi = {}\nn_iter = {}\nphi_max = {}\n'.format(flf.params['points_dphi'], flf.params['n_iter'], flf.params['points_dphi']*flf.params['n_iter']))
-                # print('execute flf: bakward step')
                 pnt_bak = flf.execute_flf(init_pnt)
                 if (pnt_for is None) or (pnt_bak is None):
-                    lyp_exponent[i] = np.nan
+                    lyp_exponent[i] = [np.nan, np.nan]
                     continue
                 elif np.isnan(pnt_for).any() or np.isnan(pnt_bak).any():
                     not_nan = np.isnan(pnt_for[:,0])
@@ -70,38 +62,28 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
                     not_nan = np.isnan(pnt_bak[:,0])
                     pnt_bak = pnt_bak[~not_nan]
                     if pnt_for.shape[0] <= 2 or pnt_bak.shape[0] <= 2:
-                        lyp_exponent[i] = np.nan
+                        lyp_exponent[i] = [np.nan, np.nan]
                         continue
-                    phi_max = min(np.max(pnt_for[:,2]), np.max(np.abs(pnt_bak[:,2])))
-                    pnt_for = pnt_for[pnt_for[:,2] <= phi_max]
-                    pnt_bak = pnt_bak[pnt_bak[:,2] >= -phi_max]
+                    phi_max = min(np.max(pnt_for[:,2]-tor_ang), np.max(np.abs(tor_ang-pnt_bak[:,2])))
+                    pnt_for = pnt_for[pnt_for[:,2] <= tor_ang+phi_max+.5*dphi]
+                    pnt_bak = pnt_bak[pnt_bak[:,2] >= tor_ang-phi_max-.5*dphi]
                 else:
                     phi_max = 2*np.pi*rots
 
-                # print('pnt_for shapae: {}'.format(pnt_for.shape[0]))
-                # print('pnt_bak shapae: {}'.format(pnt_bak.shape[0]))
-                # print('x_data ideal shape: {}'.format(pnt_for.shape[0]+pnt_bak.shape[0]-1))
-                # print(pnt_bak.shape)
-
                 succ = True
-                lyp_exp = np.empty(npts)
+                lyp_exp = np.empty((npts, 2))
                 mod_dict['points_dphi'] = dphi
                 mod_dict['n_iter'] = round(phi_max/dphi)
                 flf.change_params(mod_dict)
                 for k in range(npts):
-                    # print('   {0}: ({1:0.0f}|{2:0.0f})'.format(pid, k+1, npts))
-                    x_data = np.linspace(-phi_max, phi_max, pnt_for.shape[0]+pnt_bak.shape[0]-1).reshape((-1,1))
-                    # print('base x_data.shape = {}'.format(x_data.shape[0]))
+                    x_data = np.linspace(0, phi_max, pnt_for.shape[0]).reshape((-1,1))
                     d_shft = d0*np.array([np.cos(pnt_ang[k]), np.sin(pnt_ang[k]), 0])
-                    # print('   npts: ({0}|{1})'.format(k+1, npts))
-                    # print('      points_dphi = {}\n      n_iter = {}\n      phi_max = {}\n'.format(flf.params['points_dphi'], flf.params['n_iter'], flf.params['points_dphi']*flf.params['n_iter']))
                     pnts_for = flf.execute_flf(init_pnt+d_shft)
                     mod_dict['points_dphi'] = -dphi
                     flf.change_params(mod_dict)
-                    # print('      points_dphi = {}\n      n_iter = {}\n      phi_max = {}\n'.format(flf.params['points_dphi'], flf.params['n_iter'], flf.params['points_dphi']*flf.params['n_iter']))
                     pnts_bak = flf.execute_flf(init_pnt+d_shft)
                     if (pnts_for is None) or (pnts_bak is None):
-                        lyp_exponent[i] = np.nan
+                        lyp_exponent[i] = [np.nan, np.nan]
                         succ = False
                         break
                     elif np.isnan(pnts_for).any() or np.isnan(pnts_bak).any():
@@ -109,40 +91,34 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
                         pnts_for = pnts_for[~not_nan]
                         not_nan = np.isnan(pnts_bak[:,0])
                         pnts_bak = pnts_bak[~not_nan]
-                        # print('    phi_max = {}\n'.format(phi_max))
-                        # print('   pnts_for[:,2] = '+' '.join('{}'.format(x) for x in pnts_for[-3::,2]))
-                        # print('   pnts_bak[:,2] = '+' '.join('{}'.format(x) for x in pnts_bak[-3::,2]))
-                        phi_chk = min(np.max(pnts_for[:,2]), np.max(np.abs(pnts_bak[:,2])))
-                        pnts_for = pnts_for[pnts_for[:,2] <= phi_chk]
-                        pnts_bak = pnts_bak[pnts_bak[:,2] >= -phi_chk]
+                        phi_chk = min(np.max(pnts_for[:,2]-tor_ang), np.max(np.abs(tor_ang-pnts_bak[:,2])))
+                        pnts_for = pnts_for[pnts_for[:,2] <= tor_ang+phi_chk+.5*dphi]
+                        pnts_bak = pnts_bak[pnts_bak[:,2] >= tor_ang-phi_chk-.5*dphi]
                         if pnts_for.shape[0] <= 2 or pnts_bak.shape[0] <= 2:
-                            lyp_exponent[i] = np.nan
+                            lyp_exponent[i] = [np.nan, np.nan]
                             continue
-                        pnt_for_use = pnt_for[pnt_for[:,2] <= phi_chk]
-                        pnt_bak_use = pnt_bak[pnt_bak[:,2] >= -phi_chk]
-                        x_data = np.linspace(-phi_chk, phi_chk, pnts_for.shape[0]+pnts_bak.shape[0]-1).reshape((-1,1))
-                        # print('base truncated x_data.shape = {}'.format(x_data.shape[0]))
+                        pnt_for_use = pnt_for[pnt_for[:,2] <= tor_ang+phi_chk+.5*dphi]
+                        pnt_bak_use = pnt_bak[pnt_bak[:,2] >= tor_ang-phi_chk-.5*dphi]
+                        x_data = np.linspace(0, phi_chk, pnts_for.shape[0]).reshape((-1,1))
                     else:
                         pnt_for_use = pnt_for
                         pnt_bak_use = pnt_bak
-                    # print('pnts_for shapae: {}'.format(pnts_for.shape[0]))
-                    # print('pnts_bak shapae: {}'.format(pnts_bak.shape[0]))
-                    # print('x_data ideal shape: {}'.format(pnt_for.shape[0]+pnt_bak.shape[0]-1))
-                    # print('    phi_max = {}\n'.format(phi_max))
-                    # print('   pnt_for_use[:,2] = '+' '.join('{}'.format(x) for x in pnt_for_use[-3::,2]))
-                    # print('   pnts_for[:,2] = '+' '.join('{}'.format(x) for x in pnts_for[-3::,2]))
-                    # print('   pnt_bak_use[:,2] = '+' '.join('{}'.format(x) for x in pnt_bak_use[-3::,2]))
-                    # print('   pnts_bak[:,2] = '+' '.join('{}'.format(x) for x in pnts_bak[-3::,2]))
+
+                    # print('forward:\n   tor_max={}\n   pnt_for_use[-1] = {}\n   pnts_for[-1] = {}'.format(tor_ang+phi_max, pnt_for_use[-1], pnts_for[-1]))
                     dist_for = np.linalg.norm(pnt_for_use[:, 0:2] - pnts_for[:, 0:2], axis=1)/d0
-                    dist_bak = np.linalg.norm(pnt_bak_use[1::, 0:2] - pnts_bak[1::, 0:2], axis=1)/d0
-                    dist = np.r_[np.flip(dist_bak), dist_for]
-                    zero_idx = np.where(dist == 0)[0]
-                    dist[zero_idx] = 1e-10
-                    y_data = np.log(dist)
-                    model = LinearRegression().fit(x_data, y_data)
-                    lyp_exp[k] = model.coef_[0]
+                    zero_for = np.where(dist_for == 0)[0]
+                    dist_for[zero_for] = 1e-10
+                    model_for = LinearRegression().fit(x_data, np.log(dist_for))
+
+                    # print('bakward:\n   tor_max={}\n   pnt_bak_use[-1] = {}\n   pnts_bak[-1] = {}\n'.format(tor_ang-phi_max, pnt_bak_use[-1], pnts_bak[-1]))
+                    dist_bak = np.linalg.norm(pnt_bak_use[:, 0:2] - pnts_bak[:, 0:2], axis=1)/d0
+                    zero_bak = np.where(dist_bak == 0)[0]
+                    dist_bak[zero_bak] = 1e-10
+                    model_bak = LinearRegression().fit(x_data, np.log(dist_bak))
+                    lyp_exp[k] = [model_for.coef_[0], model_bak.coef_[0]]
+                
                 if succ:
-                    lyp_exponent[i] = np.mean(lyp_exp)
+                    lyp_exponent[i] = np.mean(lyp_exp, axis=0)
 
             print('({0:0.0f}|{1:0.0f})'.format(run_idx+1, run_cnt))
             out_que.put([run_idx, lyp_exponent])
@@ -160,8 +136,8 @@ mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt]),
             'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_hsx_wmain.nc')}
 
 date_tag = datetime.now().strftime('%Y%m%d')
-run_dict = {'dx': 5e-3, # spatial separation of sample points in meters
-            'tor_ang': 0, # toroidal angle of cross section
+run_dict = {'dx': 1e-2, # spatial separation of sample points in meters
+            'tor_ang': 0.25*np.pi, # toroidal angle of cross section
             'dstp': 5, # angular step size in field line following
             'rots': 5, # number of toroidal rotations
             'npts': 3, # number of shifted points around the sample points
@@ -206,7 +182,7 @@ if os.path.isfile(lyp_path):
     with hf.File(lyp_path, 'r') as hf_:
         lyp_exponent = hf_['lyapunov exponents'][()]
 else:
-    lyp_exponent = np.full((Rpts, Zpts), np.nan)
+    lyp_exponent = np.full((Rpts, Zpts, 2), np.nan)
     with hf.File(lyp_path, 'w') as hf_:
         hf_.create_dataset('lyapunov exponents', data=lyp_exponent)
         hf_.create_dataset('R domain', data=R_dom)
