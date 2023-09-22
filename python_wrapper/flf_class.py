@@ -414,7 +414,7 @@ class flf_wrapper:
         init_points = np.stack([r_dom, z_dom, t_dom], axis=1)
 
         # Run flf code #
-        self.exe_points = np.full((nsurf, nitr, 4), np.nan)
+        self.exe_points = np.full((nsurf, nitr+1, 4), np.nan)
         self.poin_points = np.full((nsurf, rots, 4), np.nan)
         for i, init in enumerate(init_points):
             print('Initial Point {0} of {1} : ({2:0.4f}, {3:0.4f}, {4:0.4f})\n'.format(i+1,nsurf, init[0],init[1],init[2]))
@@ -1095,10 +1095,34 @@ class flf_wrapper:
 
         return psi_edge
 
-    def calc_lyapunov_exponent(self, init_point, d0, npts, dstp, rots):
+    def continuous_trajectories_2D(self, init_point, d0, npts, dstp, rots):
+        """ Calculate the continuous Lyapunov trajectories around the specified inital point.
+        Trajectories are through a 2D phase-space, defined by the R and Z cylindrical coordinates.
+
+        Parameters
+        ----------
+        init_point : arr
+            Inital point from which exponent will be calculated.
+        d0 : float
+            Initial separatial magnitude for dispacement in phase space.
+        npts : int, optional
+            The number of displaced points from which the exponent will be averaged.
+            Default is 3.
+        dstp : float
+            The angular step size, in degrees. Default is 5.
+        rots : float
+            The number of toroidal rotations. Default is 5.
+
+        Returns
+        -------
+        arr : toroidal domain over which exponent is calculated
+        arr : trajectory separations over forward trajectries through phase space
+        arr : trajectory separations over backward trajectories through phase space
+        """
         dphi = dstp * (np.pi/180)
         stps = round(2 * np.pi / dphi)
         nitr = round(rots*stps)
+        tor_ang = init_point[2]
         pnt_ang = np.linspace(0, 2*np.pi, nitr, endpoint=False)
 
         # follow forward #
@@ -1114,26 +1138,25 @@ class flf_wrapper:
 
         # check for nans #
         if (pnt_for is None) or (pnt_bak is None):
-            return phi_dom, None, None
+            return None, None, None
         elif np.isnan(pnt_for).any() or np.isnan(pnt_bak).any():
             not_nan = np.isnan(pnt_for[:,0])
             pnt_for = pnt_for[~not_nan]
             not_nan = np.isnan(pnt_bak[:,0])
             pnt_bak = pnt_bak[~not_nan]
             if pnt_for.shape[0] <= 2 or pnt_bak.shape[0] <= 2:
-                return phi_dom, None, None
+                return None, None, None
             phi_max = min(np.max(pnt_for[:,2]), np.max(np.abs(pnt_bak[:,2])))
-            pnt_for = pnt_for[pnt_for[:,2] <= phi_max]
-            pnt_bak = pnt_bak[pnt_bak[:,2] >= -phi_max]
+            pnt_for = pnt_for[pnt_for[:,2] <= tor_ang+phi_max+.5*dphi]
+            pnt_bak = pnt_bak[pnt_bak[:,2] >= tor_ang-phi_max-.5*dphi]
         else:
             phi_max = 2*np.pi*rots
 
         succ = True
         mod_dict['points_dphi'] = dphi
         mod_dict['n_iter'] = round(phi_max/dphi)
-        phi_dom = init_point[2] + np.linspace(0, dphi*mod_dict['n_iter'], mod_dict['n_iter']+1)
         self.change_params(mod_dict)
-        # follow displaced field lines #
+        phi_dom = tor_ang + np.linspace(0, dphi*mod_dict['n_iter'], mod_dict['n_iter']+1)
         dist_for = np.full((npts, pnt_for.shape[0]), np.nan)
         dist_bak = np.full((npts, pnt_bak.shape[0]), np.nan)
         for k in range(npts):
@@ -1149,22 +1172,70 @@ class flf_wrapper:
                 pnts_for = pnts_for[~not_nan]
                 not_nan = np.isnan(pnts_bak[:,0])
                 pnts_bak = pnts_bak[~not_nan]
-                phi_chk = min(np.max(pnts_for[:,2]), np.max(np.abs(pnts_bak[:,2])))
-                pnts_for = pnts_for[pnts_for[:,2] <= phi_chk]
-                pnts_bak = pnts_bak[pnts_bak[:,2] >= -phi_chk]
+                phi_chk = min(np.max(pnts_for[:,2]-tor_ang), np.max(np.abs(tor_ang-pnts_bak[:,2])))
+                pnts_for = pnts_for[pnts_for[:,2] <= tor_ang+phi_chk+.5*dphi]
+                pnts_bak = pnts_bak[pnts_bak[:,2] >= tor_ang-phi_chk-.5*dphi]
                 if pnts_for.shape[0] <= 2 or pnts_bak.shape[0] <= 2:
                     continue
-                pnt_for_use = pnt_for[pnt_for[:,2] <= phi_chk]
-                pnt_bak_use = pnt_bak[pnt_bak[:,2] >= -phi_chk]
+                pnt_for_use = pnt_for[pnt_for[:,2] <= tor_ang+phi_chk+.5*dphi]
+                pnt_bak_use = pnt_bak[pnt_bak[:,2] >= tor_ang-phi_chk-.5*dphi]
             else:
                 pnt_for_use = pnt_for
                 pnt_bak_use = pnt_bak
+
             dfor = np.linalg.norm(pnt_for_use[:, 0:2] - pnts_for[:, 0:2], axis=1)/d0
             dbak = np.linalg.norm(pnt_bak_use[:, 0:2] - pnts_bak[:, 0:2], axis=1)/d0
             dist_for[k, 0:dfor.shape[0]] = dfor
             dist_bak[k, 0:dbak.shape[0]] = dbak
         
         return phi_dom, dist_for, dist_bak
+
+    def calc_lyapunov_exponents(self, init_point, d0, npts, dstp, rots, ndims=2, mode='continuous'):
+        """ Calculate both the forward and backward Lyapunov exponents in the specified 
+        dimensional phase-space.
+
+        Parameters
+        ----------
+        init_point : arr
+            Point at which exponents are to be calculated.
+        d0 : float
+            Inital displacement vector magnitude.
+        ndims : int, optional
+            Phase space dimensionality. Must be either 2 or 3. Default is 2.
+        mode : str, optional
+            Exponents can be calculated assuming continuous or discrete mappings.
+            Default is Continuous.
+        kwargs : dict, optional
+            Dictionary containing key word arguments for the trajectory function.
+            Default is an empty dictionary.
+        """
+        if mode == 'continuous':
+            if ndims == 2:
+                phi_dom, dist_for, dist_bak = self.continuous_trajectories_2D(init_point, d0, npts, dstp, rots)
+                print(dist_for[0:10])
+                if phi_dom is None:
+                    return None
+            else:
+                raise KeyError('Calculations are not yet developed for a {}D phase-space'.format(ndims))
+
+            lyp_exp = np.empty((npts, 2))
+            for i in range(npts):
+                x_data = phi_dom[0:dist_for[i].shape[0]].reshape((-1,1))
+
+                zero_for = np.where(dist_for == 0)[0]
+                dist_for[zero_for] = 1e-10
+                model_for = LinearRegression().fit(x_data, np.log(dist_for))
+                lyp_for = model_for.coef_[0]
+
+                zero_bak = np.where(dist_bak == 0)[0]
+                dist_bak[zero_bak] = 1e-10
+                model_bak = LinearRegression().fit(x_data, np.log(dist_bak))
+                lyp_bak = model_bak.coef_[0]
+                lyp_exp[i] = [lyp_for, lyp_bak]
+
+        else:
+            raise KeyError('%s mode has not been developed.')
+        return np.mean(lyp_exp, axis=0)
 
     def read_Bvec_data(self, data_key, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save magnetic field vectors at the cylidrical points specified in
@@ -1221,39 +1292,12 @@ class flf_wrapper:
 if __name__ == '__main__':
     # instantiate flf object #
     flf = flf_wrapper('HSX')
-    
-    init_point = np.array([1.5, 0.1, 0])
-    d0 = 1e-4
-    npts = 3
-    dstp = 1
-    rots = 5
-    phi_dom, dist_for, dist_bak = flf.calc_lyapunov_exponent(init_point, d0, npts, dstp, rots)
+    flf.set_transit_parameters(5, 500)
+
+    init_point = np.array([1.6, 0.0, 0.0])
+    flf.find_lcfs(init_point, 4, [0, 2.0])
+    flf.find_magnetic_axis(flf.lcfs_point, 4)
+
+    flf.read_out_domain(flf.ma_point, flf.lcfs_point, 5)
     flf.plotting()
-    clrs = ['tab:blue', 'tab:red', 'tab:green']
-    fig, axs = plt.subplots(1, 2, sharex=True, sharey=True, tight_layout=True, figsize=(12, 6))
-
-    phi_norm = phi_dom / np.pi
-    axs[0].plot(phi_norm, dist_for[0,:], c=clrs[0])
-    axs[0].plot(phi_norm, dist_for[1,:], c=clrs[1])
-    axs[0].plot(phi_norm, dist_for[2,:], c=clrs[2])
-    
-    axs[1].plot(phi_norm, dist_bak[0,:], c=clrs[0])
-    axs[1].plot(phi_norm, dist_bak[1,:], c=clrs[1])
-    axs[1].plot(phi_norm, dist_bak[2,:], c=clrs[2])
-
-    axs[0].set_xlim(phi_norm[0], phi_norm[-1])
-    axs[0].set_ylim(1, axs[0].get_ylim()[1])
-
-    axs[0].set_xlabel(r'$\varphi/\pi$')
-    axs[1].set_xlabel(r'$\varphi/\pi$')
-    axs[0].set_ylabel(r'$\delta/\delta_0$')
-
-    axs[0].set_title('forward')
-    axs[1].set_title('bakward')
-
-    axs[0].grid()
-    axs[1].grid()
-    axs[0].set_yscale('log')
-    axs[1].set_yscale('log')
-
-    plt.show()
+    flf.plot_poincare_data()

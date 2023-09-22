@@ -46,6 +46,13 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
             lyp_exponent = np.empty((Z_dom.shape[0], 2))
             for i, Z_val in enumerate(Z_dom):
                 init_pnt = np.array([R_val, Z_val, tor_ang])
+                lyp_exp = flf.calc_lyapunov_exponents(init_pnt, d0, npts, dstp, rots)
+                print(lyp_exp)
+                if lyp_exp is None:
+                    lyp_exponent[i] = [np.nan, np.nan]
+                else:
+                    lyp_exponent[i] = lyp_exp
+                """
                 mod_dict['n_iter'] = nitr
                 mod_dict['points_dphi'] = dphi
                 flf.change_params(mod_dict)
@@ -104,13 +111,11 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
                         pnt_for_use = pnt_for
                         pnt_bak_use = pnt_bak
 
-                    # print('forward:\n   tor_max={}\n   pnt_for_use[-1] = {}\n   pnts_for[-1] = {}'.format(tor_ang+phi_max, pnt_for_use[-1], pnts_for[-1]))
                     dist_for = np.linalg.norm(pnt_for_use[:, 0:2] - pnts_for[:, 0:2], axis=1)/d0
                     zero_for = np.where(dist_for == 0)[0]
                     dist_for[zero_for] = 1e-10
                     model_for = LinearRegression().fit(x_data, np.log(dist_for))
 
-                    # print('bakward:\n   tor_max={}\n   pnt_bak_use[-1] = {}\n   pnts_bak[-1] = {}\n'.format(tor_ang-phi_max, pnt_bak_use[-1], pnts_bak[-1]))
                     dist_bak = np.linalg.norm(pnt_bak_use[:, 0:2] - pnts_bak[:, 0:2], axis=1)/d0
                     zero_bak = np.where(dist_bak == 0)[0]
                     dist_bak[zero_bak] = 1e-10
@@ -119,13 +124,13 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
                 
                 if succ:
                     lyp_exponent[i] = np.mean(lyp_exp, axis=0)
-
+                """
             print('({0:0.0f}|{1:0.0f})'.format(run_idx+1, run_cnt))
             out_que.put([run_idx, lyp_exponent])
 
 
 # Number of CPUs to use #
-num_of_cpus = cpu_count()-1
+num_of_cpus = 1 #cpu_count()-1
 print('Number of CPUs: {0:0.0f}'.format(num_of_cpus))
 
 config_id = '0-1-0'
@@ -135,9 +140,9 @@ crnt = -10722. * np.r_[main, 14*aux]
 mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt]), 
             'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_hsx_wmain.nc')}
 
-date_tag = datetime.now().strftime('%Y%m%d')
+date_tag = 'test' # datetime.now().strftime('%Y%m%d')
 run_dict = {'dx': 1e-2, # spatial separation of sample points in meters
-            'tor_ang': 0.25*np.pi, # toroidal angle of cross section
+            'tor_ang': 0.*np.pi, # toroidal angle of cross section
             'dstp': 5, # angular step size in field line following
             'rots': 5, # number of toroidal rotations
             'npts': 3, # number of shifted points around the sample points
