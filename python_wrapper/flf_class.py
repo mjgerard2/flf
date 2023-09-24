@@ -1146,7 +1146,7 @@ class flf_wrapper:
             pnt_bak = pnt_bak[~not_nan]
             if pnt_for.shape[0] <= 2 or pnt_bak.shape[0] <= 2:
                 return None, None, None
-            phi_max = min(np.max(pnt_for[:,2]), np.max(np.abs(pnt_bak[:,2])))
+            phi_max = min(np.max(pnt_for[:,2]-tor_ang), np.max(np.abs(tor_ang-pnt_bak[:,2])))
             pnt_for = pnt_for[pnt_for[:,2] <= tor_ang+phi_max+.5*dphi]
             pnt_bak = pnt_bak[pnt_bak[:,2] >= tor_ang-phi_max-.5*dphi]
         else:
@@ -1187,7 +1187,7 @@ class flf_wrapper:
             dbak = np.linalg.norm(pnt_bak_use[:, 0:2] - pnts_bak[:, 0:2], axis=1)/d0
             dist_for[k, 0:dfor.shape[0]] = dfor
             dist_bak[k, 0:dbak.shape[0]] = dbak
-        
+
         return phi_dom, dist_for, dist_bak
 
     def calc_lyapunov_exponents(self, init_point, d0, npts, dstp, rots, ndims=2, mode='continuous'):
@@ -1212,7 +1212,6 @@ class flf_wrapper:
         if mode == 'continuous':
             if ndims == 2:
                 phi_dom, dist_for, dist_bak = self.continuous_trajectories_2D(init_point, d0, npts, dstp, rots)
-                print(dist_for[0:10])
                 if phi_dom is None:
                     return None
             else:
@@ -1220,22 +1219,40 @@ class flf_wrapper:
 
             lyp_exp = np.empty((npts, 2))
             for i in range(npts):
-                x_data = phi_dom[0:dist_for[i].shape[0]].reshape((-1,1))
+                nan_for = np.isnan(dist_for[i])
+                nan_bak = np.isnan(dist_bak[i])
+                dfor = dist_for[i, ~nan_for]
+                dbak = dist_bak[i, ~nan_bak]
+               
+                xfor = phi_dom[0:dfor.shape[0]].reshape((-1,1))
+                xbak = phi_dom[0:dbak.shape[0]].reshape((-1,1))
 
-                zero_for = np.where(dist_for == 0)[0]
-                dist_for[zero_for] = 1e-10
-                model_for = LinearRegression().fit(x_data, np.log(dist_for))
-                lyp_for = model_for.coef_[0]
+                if dfor.shape[0] > 0:
+                    zero_for = np.where(dfor == 0)[0]
+                    dfor[zero_for] = 1e-10
+                    model_for = LinearRegression().fit(xfor, np.log(dfor))
+                    lyp_for = model_for.coef_[0]
+                else:
+                    lyp_for = np.nan
 
-                zero_bak = np.where(dist_bak == 0)[0]
-                dist_bak[zero_bak] = 1e-10
-                model_bak = LinearRegression().fit(x_data, np.log(dist_bak))
-                lyp_bak = model_bak.coef_[0]
+                if dbak.shape[0] > 0:
+                    zero_bak = np.where(dbak == 0)[0]
+                    dbak[zero_bak] = 1e-10
+                    model_bak = LinearRegression().fit(xbak, np.log(dbak))
+                    lyp_bak = model_bak.coef_[0]
+                else:
+                    lyp_bak = np.nan
+                    
                 lyp_exp[i] = [lyp_for, lyp_bak]
 
         else:
             raise KeyError('%s mode has not been developed.')
-        return np.mean(lyp_exp, axis=0)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            lyp_return = np.nanmax(np.nanmean(lyp_exp, axis=1))
+
+        return lyp_return
 
     def read_Bvec_data(self, data_key, fileName='./poincare_set.h5', quiet=True, clean=True):
         """ Save magnetic field vectors at the cylidrical points specified in
