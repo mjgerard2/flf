@@ -1098,6 +1098,7 @@ class flf_wrapper:
     def continuous_trajectories_2D(self, init_point, d0, npts, dstp, rots):
         """ Calculate the continuous Lyapunov trajectories around the specified inital point.
         Trajectories are through a 2D phase-space, defined by the R and Z cylindrical coordinates.
+        The toroidal angle is the time-like variable.
 
         Parameters
         ----------
@@ -1109,9 +1110,9 @@ class flf_wrapper:
             The number of displaced points from which the exponent will be averaged.
             Default is 3.
         dstp : float
-            The angular step size, in degrees. Default is 5.
+            The angular step size, in degrees.
         rots : float
-            The number of toroidal rotations. Default is 5.
+            The number of toroidal rotations.
 
         Returns
         -------
@@ -1126,8 +1127,10 @@ class flf_wrapper:
         pnt_ang = np.linspace(0, 2*np.pi, nitr, endpoint=False)
 
         # follow forward #
-        mod_dict = {'n_iter': nitr,
-                    'points_dphi': dphi}
+        mod_dict = {'follow_type': 1,
+                    'n_iter': nitr,
+                    'points_dphi': dphi,
+                    'points_number': 1}
         self.change_params(mod_dict)
         pnt_for = self.execute_flf(init_point)
 
@@ -1152,7 +1155,6 @@ class flf_wrapper:
         else:
             phi_max = 2*np.pi*rots
 
-        succ = True
         mod_dict['points_dphi'] = dphi
         mod_dict['n_iter'] = round(phi_max/dphi)
         self.change_params(mod_dict)
@@ -1190,8 +1192,189 @@ class flf_wrapper:
 
         return phi_dom, dist_for, dist_bak
 
+    def continuous_trajectories_3D(self, init_point, d0, npts, darc, total_length):
+        """ Calculate the continuous Lyapunov trajectories around the specified inital point.
+        Trajectories are through a 3D phase-space, defined by the R, Z, and phi cylindrical coordinates.
+        The field-line arclength is the time-like varaible.
+
+        Parameters
+        ----------
+        init_point : arr
+            Inital point from which exponent will be calculated.
+        d0 : float
+            Initial separatial magnitude for dispacement in phase space.
+        npts : int, optional
+            The number of displaced points from which the exponent will be averaged.
+            Default is 3.
+        darc : float
+            The field-line arclength step size in meters.
+        total_length : float, optional
+            The distance a field line will be followed in meters. Default is 50 m.
+
+        Returns
+        -------
+        arr : toroidal domain over which exponent is calculated
+        arr : trajectory separations over forward trajectries through phase space
+        arr : trajectory separations over backward trajectories through phase space
+        """
+        niter = round(float(total_length)/darc)
+        pnt_ang = np.linspace(0, 2*np.pi, npts, endpoint=False)
+
+        # follow forward #
+        mod_dict = {'follow_type': 2,
+                    'n_iter': niter,
+                    'points_dphi': darc,
+                    'points_number': 1}
+        self.change_params(mod_dict)
+        pnt_for = self.execute_flf(init_point)
+
+        # follow backward #
+        mod_dict['points_dphi'] = -darc
+        self.change_params(mod_dict)
+        pnt_bak = self.execute_flf(init_point)
+
+        # check for nans #
+        if (pnt_for is None) or (pnt_bak is None):
+            return None, None, None
+        elif np.isnan(pnt_for).any() or np.isnan(pnt_bak).any():
+            not_nan = np.isnan(pnt_for[:,0])
+            pnt_for = pnt_for[~not_nan]
+            not_nan = np.isnan(pnt_bak[:,0])
+            pnt_bak = pnt_bak[~not_nan]
+            if pnt_for.shape[0] <= 2 or pnt_bak.shape[0] <= 2:
+                return None, None, None
+            else:
+                arc_max = min(pnt_for[1::].shape[0]*darc, pnt_bak[1::].shape[0]*darc)
+                if pnt_for.shape[0] > pnt_bak.shape[0]:
+                    pnt_for = pnt_for[0:pnt_bak.shape[0]]
+                elif pnt_bak.shape[0] > pnt_for.shape[0]:
+                    pnt_bak = pnt_bak[0:pnt_for.shape[0]]
+        else:
+            arc_max = total_length
+
+        niter = round(arc_max/darc)
+        mod_dict['n_iter'] = niter
+        self.change_params(mod_dict)
+
+        dist_for = np.full((npts, niter+1), np.nan)
+        dist_bak = np.full((npts, niter+1), np.nan)
+        arc_dom = np.arange(0, (niter+1)*darc, darc)
+        for k in range(npts):
+            d_shft = d0*np.array([np.cos(pnt_ang[k]), np.sin(pnt_ang[k]), 0])
+            mod_dict['points_dphi'] = darc
+            self.change_params(mod_dict)
+            pnt_for_shft = self.execute_flf(init_point+d_shft)
+            mod_dict['points_dphi'] = -darc
+            self.change_params(mod_dict)
+            pnt_bak_shft = self.execute_flf(init_point+d_shft)
+            if (pnt_for_shft is None) or (pnt_bak_shft is None):
+                continue
+            elif np.isnan(pnt_for_shft).any() or np.isnan(pnt_bak_shft).any():
+                not_nan = np.isnan(pnt_for_shft[:,0])
+                pnt_for_shft = pnt_for_shft[~not_nan]
+                not_nan = np.isnan(pnt_bak_shft[:,0])
+                pnt_bak_shft = pnt_bak_shft[~not_nan]
+                arc_chk = min(pnt_for_shft[1::].shape[0]*darc, pnt_bak_shft[1::].shape[0]*darc)
+                if pnt_for_shft.shape[0] < pnt_bak_shft.shape[0]:
+                    pnt_for_shft = pnt_for_shft[0:pnt_bak_shft.shape[0]]
+                elif pnt_bak_shft.shape[0] < pnt_for_shft.shape[0]:
+                    pnt_bak_shft = pnt_bak_shft[0:pnt_for_shft.shape[0]]
+                # phi_chk = min(np.max(pnt_for_shft[:,2]-tor_ang), np.max(np.abs(tor_ang-pnt_bak_shft[:,2])))
+                # pnt_for_shft = pnt_for_shft[pnt_for_shft[:,2] <= tor_ang+phi_chk+.5*dphi]
+                # pnt_bak_shft = pnt_bak_shft[pnt_bak_shft[:,2] >= tor_ang-phi_chk-.5*dphi]
+                if pnt_for_shft.shape[0] <= 2 or pnt_bak_shft.shape[0] <= 2:
+                    continue
+                else:
+                    pnt_for_use = pnt_for[0:pnt_for_shft.shape[0]]
+                    pnt_bak_use = pnt_bak[0:pnt_bak_shft.shape[0]]
+                    # pnt_for_use = pnt_for[pnt_for[:,2] <= tor_ang+phi_chk+.5*dphi]
+                    # pnt_bak_use = pnt_bak[pnt_bak[:,2] >= tor_ang-phi_chk-.5*dphi]
+            else:
+                pnt_for_use = pnt_for
+                pnt_bak_use = pnt_bak
+
+            dfor = np.sqrt(pnt_for_use[:,0]**2+pnt_for_shft[:,0]**2-2*pnt_for_use[:,0]*pnt_for_shft[:,0]*np.cos(pnt_for_use[:,2]-pnt_for_shft[:,2])+(pnt_for_use[:,1]-pnt_for_shft[:,1])**2)/d0
+            dbak = np.sqrt(pnt_bak_use[:,0]**2+pnt_bak_shft[:,0]**2-2*pnt_bak_use[:,0]*pnt_bak_shft[:,0]*np.cos(pnt_bak_use[:,2]-pnt_bak_shft[:,2])+(pnt_bak_use[:,1]-pnt_bak_shft[:,1])**2)/d0
+            dist_for[k, 0:dfor.shape[0]] = dfor
+            dist_bak[k, 0:dbak.shape[0]] = dbak
+
+        return arc_dom, dist_for, dist_bak
+
+    def discrete_trajectories_2D(self, init_point, d0, dstp, rots):
+        dphi = dstp * (np.pi/180)
+        stps = round(2 * np.pi / dphi)
+        nitr = round(rots*stps)
+        tor_ang = init_point[2]
+
+        # follow forward #
+        mod_dict = {'n_iter': nitr,
+                    'points_dphi': dphi,
+                    'points_number': 1}
+        self.change_params(mod_dict)
+        pnt_for = self.execute_flf(init_point)
+
+        # follow backward #
+        mod_dict['points_dphi'] = -dphi
+        self.change_params(mod_dict)
+        pnt_bak = self.execute_flf(init_point)
+
+        # check for nans #
+        if (pnt_for is None) or (pnt_bak is None):
+            return None
+        elif np.isnan(pnt_for).any() or np.isnan(pnt_bak).any():
+            not_nan = np.isnan(pnt_for[:,0])
+            pnt_for = pnt_for[~not_nan, 0:3]
+            not_nan = np.isnan(pnt_bak[:,0])
+            pnt_bak = pnt_bak[~not_nan, 0:3]
+            if (pnt_for.shape[0] < 3) or (pnt_bak.shape[0] < 3):
+                return None
+        else:
+            pnt_for = pnt_for[:, 0:3]
+            pnt_bak = pnt_bak[:, 0:3]
+
+        # forward parameters #
+        npts = pnt_for.shape[0]-1
+        mod_dict = {'n_iter': 1,
+                    'points_dphi': dphi,
+                    'points_number': npts}
+        self.change_params(mod_dict)
+
+        # forward radial derivative #
+        shift_vec = .5*d0*np.stack((np.ones(npts), np.zeros(npts), np.zeros(npts)), axis=1)
+        pnt_for_plus = self.execute_flf(pnt_for[0:npts] + shift_vec)[:,1,0:2]
+        pnt_for_mins = self.execute_flf(pnt_for[0:npts] - shift_vec)[:,1,0:2]
+        rad_for_deriv = np.linalg.norm(pnt_for_plus-pnt_for_mins, axis=1)/d0
+
+        # forward zed derivative #
+        shift_vec = .5*d0*np.stack((np.zeros(npts), np.ones(npts), np.zeros(npts)), axis=1)
+        pnt_for_plus = self.execute_flf(pnt_for[0:npts] + shift_vec)[:,1,0:2]
+        pnt_for_mins = self.execute_flf(pnt_for[0:npts] - shift_vec)[:,1,0:2]
+        zed_for_deriv = np.linalg.norm(pnt_for_plus-pnt_for_mins, axis=1)/d0
+
+        # backward parameters #
+        npts = pnt_bak.shape[0]-1
+        mod_dict['points_dphi'] = dphi
+        mod_dict['points_number'] = npts
+        self.change_params(mod_dict)
+
+        # backward radial derivative #
+        shift_vec = .5*d0*np.stack((np.ones(npts), np.zeros(npts), np.zeros(npts)), axis=1)
+        pnt_bak_plus = self.execute_flf(pnt_bak[0:npts] + shift_vec)[:,1,0:2]
+        pnt_bak_mins = self.execute_flf(pnt_bak[0:npts] - shift_vec)[:,1,0:2]
+        rad_bak_deriv = np.linalg.norm(pnt_bak_plus-pnt_bak_mins, axis=1)/d0
+
+        # backward zed derivative #
+        shift_vec = .5*d0*np.stack((np.zeros(npts), np.ones(npts), np.zeros(npts)), axis=1)
+        pnt_bak_plus = self.execute_flf(pnt_bak[0:npts] + shift_vec)[:,1,0:2]
+        pnt_bak_mins = self.execute_flf(pnt_bak[0:npts] - shift_vec)[:,1,0:2]
+        zed_bak_deriv = np.linalg.norm(pnt_bak_plus-pnt_bak_mins, axis=1)/d0
+
+        forward = np.mean(np.hypot(rad_for_deriv, zed_for_deriv))
+        backward = np.mean(np.hypot(rad_bak_deriv, zed_bak_deriv))
+        return .5*(forward+backward)*(dphi/(2*np.pi))*np.log(10)
+
     def calc_lyapunov_exponents(self, init_point, d0, npts, dstp, rots, ndims=2, mode='continuous'):
-        """ Calculate both the forward and backward Lyapunov exponents in the specified 
+        """ Calculate both the forward and backward Lyapunov exponents in the specified
         dimensional phase-space.
 
         Parameters
@@ -1211,11 +1394,17 @@ class flf_wrapper:
         """
         if mode == 'continuous':
             if ndims == 2:
-                phi_dom, dist_for, dist_bak = self.continuous_trajectories_2D(init_point, d0, npts, dstp, rots)
-                if phi_dom is None:
+                lyp_norm = np.log(10)/(2*np.pi)
+                stp_dom, dist_for, dist_bak = self.continuous_trajectories_2D(init_point, d0, npts, dstp, rots)
+                if stp_dom is None:
+                    return None
+            elif ndims == 3:
+                lyp_norm = 0.1*np.log(10)
+                stp_dom, dist_for, dist_bak = self.continuous_trajectories_3D(init_point, d0, npts, dstp, rots)
+                if stp_dom is None:
                     return None
             else:
-                raise KeyError('Calculations are not yet developed for a {}D phase-space'.format(ndims))
+                raise KeyError('Calculations are not developed for a {}D phase-space'.format(ndims))
 
             lyp_exp = np.empty((npts, 2))
             for i in range(npts):
@@ -1223,10 +1412,8 @@ class flf_wrapper:
                 nan_bak = np.isnan(dist_bak[i])
                 dfor = dist_for[i, ~nan_for]
                 dbak = dist_bak[i, ~nan_bak]
-               
-                xfor = phi_dom[0:dfor.shape[0]].reshape((-1,1))
-                xbak = phi_dom[0:dbak.shape[0]].reshape((-1,1))
-
+                xfor = stp_dom[0:dfor.shape[0]].reshape((-1,1)) * lyp_norm
+                xbak = stp_dom[0:dbak.shape[0]].reshape((-1,1)) * lyp_norm
                 if dfor.shape[0] > 0:
                     zero_for = np.where(dfor == 0)[0]
                     dfor[zero_for] = 1e-10
@@ -1234,7 +1421,6 @@ class flf_wrapper:
                     lyp_for = model_for.coef_[0]
                 else:
                     lyp_for = np.nan
-
                 if dbak.shape[0] > 0:
                     zero_bak = np.where(dbak == 0)[0]
                     dbak[zero_bak] = 1e-10
@@ -1242,15 +1428,14 @@ class flf_wrapper:
                     lyp_bak = model_bak.coef_[0]
                 else:
                     lyp_bak = np.nan
-                    
                 lyp_exp[i] = [lyp_for, lyp_bak]
+
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                lyp_return = np.nanmax(np.nanmean(lyp_exp, axis=1))
 
         else:
             raise KeyError('%s mode has not been developed.')
-
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            lyp_return = np.nanmax(np.nanmean(lyp_exp, axis=1))
 
         return lyp_return
 
@@ -1307,14 +1492,48 @@ class flf_wrapper:
         hf_file.close()
 
 if __name__ == '__main__':
-    # instantiate flf object #
     flf = flf_wrapper('HSX')
-    flf.set_transit_parameters(5, 500)
 
-    init_point = np.array([1.6, 0.0, 0.0])
-    flf.find_lcfs(init_point, 4, [0, 2.0])
-    flf.find_magnetic_axis(flf.lcfs_point, 4)
+    npts = 3
+    darc = 0.25
+    total_length = 200
 
-    flf.read_out_domain(flf.ma_point, flf.lcfs_point, 5)
+    n_set = np.arange(1, 11)
+    z_dom = np.linspace(-0.3, 0.3, 50)
+    L_dom = np.empty((n_set.shape[0], z_dom.shape[0]))
+    for i, n in enumerate(n_set):
+        d0 = n*1.44e-3
+        print('({}|{})'.format(i+1, n_set.shape[0]))
+        for j, z in enumerate(z_dom):
+            init_point = np.array([1.475, z, 0])
+            lyp_exp = flf.calc_lyapunov_exponents(init_point, d0, npts, darc, total_length, ndims=3)
+            L_dom[i,j] = lyp_exp
+    
     flf.plotting()
-    flf.plot_poincare_data()
+    fig, ax = plt.subplots(1, 1, tight_layout=True, figsize=(8, 6))
+
+    for i, n in enumerate(n_set):
+        ax.plot(z_dom, L_dom[i,:], ls='--', marker='o', mfc='None', label=r'${0:0.0f} \times \rho_{{\mathrm{{s}}}}$'.format(n))
+
+    ax.set_xlabel(r'Z (m)')
+    ax.set_ylabel(r'$\lambda_{\mathrm{Lyp}}$')
+
+    ax.set_xlim(z_dom[0], z_dom[-1])
+    ax.set_ylim(1e-2, 1e2)
+    ax.set_yscale('log')
+
+    plt.legend(title=r'$d_0$', frameon=False)
+    plt.show()
+    
+    if False:
+        # instantiate flf object #
+        flf = flf_wrapper('HSX')
+        flf.set_transit_parameters(5, 500)
+
+        init_point = np.array([1.6, 0.0, 0.0])
+        flf.find_lcfs(init_point, 4, [0, 2.0])
+        flf.find_magnetic_axis(flf.lcfs_point, 4)
+
+        flf.read_out_domain(flf.ma_point, flf.lcfs_point, 5)
+        flf.plotting()
+        flf.plot_poincare_data()

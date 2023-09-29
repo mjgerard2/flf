@@ -12,6 +12,10 @@ ModDir = os.path.join('/home', 'michael', 'Desktop', 'flf', 'python_wrapper')
 sys.path.append(ModDir)
 import flf_class as flfc
 
+ModDir = os.path.join('/home', 'michael', 'Desktop', 'python_repos', 'turbulence-optimization', 'pythonTools')
+sys.path.append(ModDir)
+from databaseTools import functions
+
 
 def maximum_lyapunov_exponent(in_que, out_que, run_dict):
     dx = run_dict['dx']
@@ -54,19 +58,17 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
 
 
 # Number of CPUs to use #
-num_of_cpus = 12  # cpu_count()-1
+num_of_cpus = 8  # cpu_count()-1
 print('Number of CPUs: {0:0.0f}'.format(num_of_cpus))
 
-config_id = '0-1-0'
-main = np.ones(6)
-aux = np.zeros(6)
+config_id = '60-1-84'
+main, aux = functions.readCrntConfig(config_id)
 crnt = -10722. * np.r_[main, 14*aux]
 mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt]), 
             'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_hsx_wmain.nc')}
 
-date_tag = datetime.now().strftime('%Y%m%d')
 run_dict = {'dx': 1e-3, # spatial separation of sample points in meters
-            'tor_ang': 0.25*np.pi, # toroidal angle of cross section
+            'tor_ang': 0.0*np.pi, # toroidal angle of cross section
             'dstp': 5, # angular step size in field line following
             'rots': 5, # number of toroidal rotations
             'npts': 3, # number of shifted points around the sample points
@@ -96,13 +98,14 @@ Z_dom = np.linspace(Z_min, Z_max, Zpts)
 run_dict['Z_dom'] = Z_dom
 
 # save run data #
+date_tag = '20230924'  # datetime.now().strftime('%Y%m%d')
 main_id = 'main_coil_{}'.format(config_id.split('-')[0])
 set_id = 'set_{}'.format(config_id.split('-')[1])
 job_id = 'job_{}'.format(config_id.split('-')[2])
 lyp_dir = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', main_id, set_id, job_id, 'lyapunov_data')
 lyp_nums = [int(f.name.split('.')[0].split('_')[1]) for f in os.scandir(lyp_dir) if f.name.split('_')[0] == date_tag]
 if len(lyp_nums) > 0:
-    lyp_tag = str(max(lyp_nums)+1).zfill(4)
+    lyp_tag = '0001'  # str(max(lyp_nums)+1).zfill(4)
 else:
     lyp_tag = '0001'
 lyp_path = os.path.join(lyp_dir, '%s_%s.h5' % (date_tag, lyp_tag))
