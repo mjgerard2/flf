@@ -18,25 +18,11 @@ from databaseTools import functions
 
 
 def maximum_lyapunov_exponent(in_que, out_que, run_dict):
-    dx = run_dict['dx']
-    tor_ang = run_dict['tor_ang']
-    dstp = run_dict['dstp']
-    rots = run_dict['rots']
-    npts = run_dict['npts']
-    d0 = run_dict['d0']
-    run_cnt = run_dict['run_cnt']
-    mod_dict = run_dict['mod_dict']
-    Z_dom = run_dict['Z_dom']
-
-    dphi = dstp * (np.pi/180)
-    stps = round(2 * np.pi / dphi)
-    nitr = round(rots*stps)
-
     pid = os.getpid()
     file_dict = {'namelist': 'flf.namelist_%s' % pid,
                  'input': 'point_temp_%s.in' % pid}
     flf = flfc.flf_wrapper('HSX', file_dict=file_dict)
-
+    flf.change_params(run_dict['mod_dict'])
     while True:
         item = in_que.get()
         if item is None:
@@ -45,41 +31,49 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
         else:
             run_idx, R_val = item
             lyp_exponent = np.empty(Z_dom.shape[0])
-            for i, Z_val in enumerate(Z_dom):
-                init_pnt = np.array([R_val, Z_val, tor_ang])
-                lyp_exp = flf.calc_lyapunov_exponents(init_pnt, d0, npts, dstp, rots)
+            for i, Z_val in enumerate(run_dict['Z_dom']):
+                init_pnt = np.array([R_val, Z_val, run_dict['tor_ang']])
+                lyp_exp = flf.calc_lyapunov_exponents(init_pnt, run_dict['d0'], run_dict['npts'], run_dict['dstp'], run_dict['rots'])
                 if lyp_exp is None:
                     lyp_exponent[i] = np.nan
                 else:
                     lyp_exponent[i] = lyp_exp
-            
-            print('({0:0.0f}|{1:0.0f})'.format(run_idx+1, run_cnt))
+            print('({0:0.0f}|{1:0.0f})'.format(run_idx+1, run_dict['run_cnt']))
             out_que.put([run_idx, lyp_exponent])
-
 
 # Number of CPUs to use #
 num_of_cpus = 8  # cpu_count()-1
 print('Number of CPUs: {0:0.0f}'.format(num_of_cpus))
 
-config_id = '60-1-84'
+config_id = '0-1-0'
 main, aux = functions.readCrntConfig(config_id)
 crnt = -10722. * np.r_[main, 14*aux]
 mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt]), 
-            'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_hsx_wmain.nc')}
+            'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_res2p5cm_180pln.nc')}
 
 run_dict = {'dx': 1e-3, # spatial separation of sample points in meters
             'tor_ang': 0.0*np.pi, # toroidal angle of cross section
-            'dstp': 5, # angular step size in field line following
-            'rots': 5, # number of toroidal rotations
+            'dstp': .25, # angular step size in field line following
+            'rots': 200, # number of toroidal rotations
             'npts': 3, # number of shifted points around the sample points
-            'd0': 1e-4, # distance of shift for shifted points in meters
+            'd0': 1.44e-3, # distance of shift for shifted points in meters
             'mod_dict': mod_dict}
 
 # get search domain from vessel wall #
-vess_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'vessel90.h5')
-with hf.File(vess_path, 'r') as hf_:
-    vess_data = hf_['data'][()]
-    vess_dom = hf_['domain'][()]
+# vess_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'vessel90.h5')
+vess_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'vessel_dieter_RF.txt')
+#with hf.File(vess_path, 'r') as hf_:
+#    vess_data = hf_['data'][()]
+#    vess_dom = hf_['domain'][()]
+with open(vess_path, 'r') as f:
+    lines = f.readlines()
+    tor_pnts, pol_pnts = [int(x) for x in lines[0].strip().split()]
+    vess_data = np.empty((tor_pnts, pol_pnts, 3))
+    vess_dom = np.linspace(0, .5*np.pi, tor_pnts)
+    for i in range(tor_pnts):
+        for j in range(pol_pnts):
+            idx = 1 + i*pol_pnts + j
+            vess_data[i,j] = [float(x) for x in lines[idx].strip().split()]
 
 idx = np.argmin(np.abs(vess_dom - run_dict['tor_ang']))
 R_vess = np.linalg.norm(vess_data[idx][:, 0:2], axis=1)
@@ -98,14 +92,14 @@ Z_dom = np.linspace(Z_min, Z_max, Zpts)
 run_dict['Z_dom'] = Z_dom
 
 # save run data #
-date_tag = '20230924'  # datetime.now().strftime('%Y%m%d')
+date_tag = datetime.now().strftime('%Y%m%d')
 main_id = 'main_coil_{}'.format(config_id.split('-')[0])
 set_id = 'set_{}'.format(config_id.split('-')[1])
 job_id = 'job_{}'.format(config_id.split('-')[2])
 lyp_dir = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', main_id, set_id, job_id, 'lyapunov_data')
 lyp_nums = [int(f.name.split('.')[0].split('_')[1]) for f in os.scandir(lyp_dir) if f.name.split('_')[0] == date_tag]
 if len(lyp_nums) > 0:
-    lyp_tag = '0001'  # str(max(lyp_nums)+1).zfill(4)
+    lyp_tag = str(max(lyp_nums)+1).zfill(4)
 else:
     lyp_tag = '0001'
 lyp_path = os.path.join(lyp_dir, '%s_%s.h5' % (date_tag, lyp_tag))

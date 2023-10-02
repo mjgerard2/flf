@@ -1373,7 +1373,7 @@ class flf_wrapper:
         backward = np.mean(np.hypot(rad_bak_deriv, zed_bak_deriv))
         return .5*(forward+backward)*(dphi/(2*np.pi))*np.log(10)
 
-    def calc_lyapunov_exponents(self, init_point, d0, npts, dstp, rots, ndims=2, mode='continuous'):
+    def calc_lyapunov_exponents(self, init_point, d0, npts, dstp, rots, ndims=3, mode='continuous'):
         """ Calculate both the forward and backward Lyapunov exponents in the specified
         dimensional phase-space.
 
