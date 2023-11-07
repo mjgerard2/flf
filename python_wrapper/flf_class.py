@@ -29,53 +29,80 @@ class flf_wrapper:
     change_params(chg_dict)
         Change flf.namelist variables.
 
-    set_transit_parameters(self, dstp, rots)
+    set_transit_parameters(dstp, rots)
         Define the toroidal transit parameters.
 
-    execute_flf(init_point, quiet=False)
-        Execcultes field line following code on specified input points.
+    execute_flf(init_point, quiet=True, clean=True)
+        Execultes field line following code on specified input points.
 
-    read_wout()
-        Imports wout file corresponding to the current profile.
-
-    read_out_along_line(tor_ang, ro_ang, ro_lim, nsurf=3, plt=None, return_data=False):
-        Makes Poincare plot with initial points generated from a line
-        extending out from the magnetic axis to the specified radial domain.
-
-    read_out_point(init_point, plt=None, return_poin_data=False):
+    read_out_point(init_point, quiet=True, clean=True)
         Makes Poincare plot by following field line found at input point.
 
-    read_out_domain(pnt1, pnt2, nsurf, plt=None, return_data=False):
-        Makes Poincare plot with initial points generated from a line
-        extending between two specified points.
+    read_out_set(init_points, quiet=True, clean=True)
+        Makes Poincare plot by following field line found at input point.
 
-    read_out_grid_sample(center_point, half_width, npts, plt=None, return_data=False, quiet=True)
-        Makes Poincare plot with initial points generated as a uniform set
-        from the square centered around a point.
+    read_out_domain(pnt1, pnt2, nsurf, quiet=True, clean=True)
+        Save field line coordinate data for the specified number of field
+        lines, with each field line initialized along a line between two
+        points.  Makes hdf5 file.
 
-    fit_surf(init_point, r_modes=3, z_modes=3, plt=None):
-        Performs a Fourier fit to the poincare plot points in the toroidal
-        domain of the initialized point.
+    read_out_square(center_point, half_width, npts, quiet=True, clean=True)
+        Save field square coordinate data for the specified number of field
+        lines, with each field line initialized from a square grid centered
+        around the center point.  Makes hdf5 file.
 
-    find_magnetic_axis(init_point, dec)
-        Approximately locate the Magnetic Axis, represented as (r,z,t)
-        points initialized in the flf code.
-
-    find_boundaries(init_point, dec):
+    plotting(fontsize=14, labelsize=16, linewidth=2)
+        Define plotting parameters.
+    
+    plot_poincare_data(save_path=None)
+        Plot poincare data.
+    
+    save_poincare_data(save_path, data_key)
+        Save Poincare data as hdf5 file.
+    
+    save_exe_data(save_path, data_key)
+        Save data output from the flf code as hdf5 file.
+    
+    find_lcfs(init_point, dec_limit, r_limits, scan_res_limit=2, high_precission=True)
         Approximately locate the LCFS and Magnetic Axis, represented as
         (r,z,t) points initialized in the flf code.
 
-    save_read_out_domain(data_key, pnt1, pnt2, nsurf, fileName='./poincare_set.h5'):
-        Save field line coordinate data for the specified number of field
-        lines, with each field line initialized along a line between two
-        points.
+    find_magnetic_axis(init_point, dec_limit)
+        Approximately locate the Magnetic Axis, represented as (r,z,t)
+        points initialized in the flf code.
 
-    save_read_out_line(data_key, init_point, fileName='./poincare_set.h5'):
-        Save single field line coordinate data.
+    flux_surface_dimensionality(points)
+        Calculate the flux surface pointwise dimensional and return flux surface score.
+        Ergodic field lines typically return values above 0.1
 
-    save_Bvec_data(data_key, fileName='./poincare_set.h5'):
+    flf_surface(ma_points, surf_points)
+        Generates a B-field surface from the flf data provided by the
+        magnetic axis and the input initial field point.
+
+    generate_descur_input(ma_point, surf_point, save_path, pol_pnts=20, tor_pnts=100, quiet=True, clean=True)
+        Generate DESCUR input data for a flux surface.
+
+    calc_psiEdge(ma_pnt, lcfs_pnt, Npts=1000, upts=100, Bidx='Bmod', plot=True, quiet=True, clean=True)
+        A method for calculating the enclosed toroidal flux within the flux surface
+        traced out by following the seeded field line specified in the input.
+
+    continuous_trajectories_2D(init_point, d0, npts, dstp, rots)
+        Calculate the continuous Lyapunov trajectories around the specified inital point.
+        Trajectories are through a 2D phase-space, defined by the R and Z cylindrical coordinates.
+        The toroidal angle is the time-like variable.
+
+    continuous_trajectories_3D(init_point, d0, npts, darc, total_length)
+        Calculate the continuous Lyapunov trajectories around the specified inital point.
+        Trajectories are through a 3D phase-space, defined by the R, Z, and phi cylindrical coordinates.
+        The field-line arclength is the time-like varaible.
+
+    calc_lyapunov_exponents(init_point, d0, npts, dstp, rots, ndims=3, mode='continuous')
+        Calculate both the forward and backward Lyapunov exponents in the specified
+        dimensional phase-space.
+
+    read_Bvec_data(data_key, fileName='./poincare_set.h5', quiet=True, clean=True)
         Save magnetic field vectors at the cylidrical points specified in
-        the imported grid array.
+        the imported grid array.  Makes hdf5 file.
     """
 
     def __init__(self, exp, file_dict=None):
@@ -191,7 +218,7 @@ class flf_wrapper:
         self.change_params(mod_dict)
 
     def execute_flf(self, init_point, quiet=True, clean=True):
-        """ Execcultes field line following code on specified input points.
+        """ Execultes field line following code on specified input points.
 
         Parameters
         ----------
@@ -371,7 +398,7 @@ class flf_wrapper:
         idx_stps = [int(i*stps) for i in range(rots)]
 
         # Run flf code #
-        self.exe_points = np.full((init_points.shape[0], nitr, 4), np.nan)
+        self.exe_points = np.full((init_points.shape[0], nitr+1, 4), np.nan)
         self.poin_points = np.full((init_points.shape[0], rots, 4), np.nan)
         for idx, init_point in enumerate(init_points):
             poin_pnts = np.empty((rots, 4))
@@ -782,7 +809,7 @@ class flf_wrapper:
         # return np.hypot((1.-r_sq), (1.-slope))
         return slope-1.
 
-    def flf_surface(self, ma_points, surf_points):
+    def flf_surface(self, ma_points, surf_points, mod_params):
         """ Generates a B-field surface from the flf data provided by the
         magnetic axis and the input initial field point.
 
@@ -803,15 +830,19 @@ class flf_wrapper:
             the R, Z, mod B and poloidal angles.
         """
         # Read Out parameters #
-        nitr = self.params['n_iter']
-        stps = int(2 * np.pi / self.params['points_dphi'])
-        rots = int( (nitr * self.params['points_dphi']) / (2*np.pi) )
-        idx_stps = [int(i*stps) for i in range(rots)]
+        # nitr = self.params['n_iter']
+        # stps = int(2 * np.pi / self.params['points_dphi'])
+        # rots = int( (nitr * self.params['points_dphi']) / (2*np.pi) )
+        # idx_stps = [int(i*stps) for i in range(rots)]
+        rots = int( (mod_params['n_iter'] * mod_params['points_dphi']) / (2*np.pi) )
+        stps = int(surf_points.shape[0] / rots)
+        idx_base = [int(i*stps) for i in range(rots)]
+
 
         v_dom = surf_points[0::,2]
         surf_ordered = np.empty((stps+1, rots, 5))
         for v_idx, v in enumerate(ma_points[0::,2]):
-            idx_stps = np.argmin(np.abs(v_dom - v)) + [int(i*stps) for i in range(rots)]
+            idx_stps = np.argmin(np.abs(v_dom - v)) + idx_base  # [int(i*stps) for i in range(rots)]
             stp_idx = np.argmin(np.abs(ma_points[0::,2] - v))
             Rma, Zma = ma_points[stp_idx,0], ma_points[stp_idx,1]
 
@@ -831,7 +862,7 @@ class flf_wrapper:
 
         return surf_ordered, ma_ordered
 
-    def generate_descur_input(self, ma_point, surf_point, save_path, pol_pnts=20, tor_pnts=100, quiet=True, clean=True):
+    def generate_descur_input(self, ma_point, surf_point, save_path, pol_pnts=20, tor_pnts=80, quiet=True, clean=True):
         """ Generate DESCUR input data for a flux surface.
 
         Parameters
@@ -865,7 +896,7 @@ class flf_wrapper:
 
         self.change_params(mod_dict)
         ma_points = self.execute_flf(ma_point, quiet=quiet, clean=clean)
-        if points is None:
+        if ma_points is None:
             raise RuntimeError('While following the magnetic axis, the FLF code failed.')
 
         npts = int(pol_pnts * stps)
@@ -874,7 +905,7 @@ class flf_wrapper:
 
         self.change_params(mod_dict)
         surf_points = self.execute_flf(surf_point, quiet=quiet, clean=clean)
-        if points is None:
+        if surf_points is None:
             raise RuntimeError('While following the surface field line, the FLF code failed.')
 
         surf, ma = self.flf_surface(ma_points, surf_points, mod_dict)
@@ -898,8 +929,9 @@ class flf_wrapper:
             for n in range(n_pnts):
                 file.write('{0:0.6f} {1:0.6f} {2:0.6f} \n'.format(fit_data[n,0], fit_data[n,1], fit_data[n,2]))
 
-    def calc_psiEdge(self, ma_pnt, lcfs_pnt, Npts=1000, upts=100, Bidx='Bmod', plot_true=True, quiet=True, clean=True):
-        """ A well documented commentary
+    def calc_psiEdge(self, ma_pnt, lcfs_pnt, Npts=1000, upts=100, Bidx='Bmod', plot=True, quiet=True, clean=True):
+        """ A method for calculating the enclosed toroidal flux within the flux surface
+        traced out by following the seeded field line specified in the input.
 
         Parameters
         ----------
@@ -933,7 +965,8 @@ class flf_wrapper:
                     'n_iter' : npts}
         self.change_params(mod_dict)
 
-        points = self.read_out_point(lcfs_pnt, return_poin_data=True)[0:,0:3] - ma_pnt
+        self.read_out_point(lcfs_pnt)
+        points = self.poin_points[:,0:3] - ma_pnt
 
         # Calculate Area #
         area_data = np.array( [ [ np.arctan2(pnt[1], pnt[0]), pnt[0]**2 + pnt[1]**2, pnt[0], pnt[1] ] for pnt in points ] )
@@ -1071,15 +1104,14 @@ class flf_wrapper:
         psi_edge = area * np.mean(points_out[0:,3])
         # print('Psi Edge : {} [T m^2]'.format( psi_edge ) )
 
-        if plot_true:
-            plot = pd.plot_define()
-
-            plt = plot.plt
+        if plot:
+            self.plotting()
             fig, ax = plt.subplots(1, 1, tight_layout=True)
 
             ax.set_aspect('equal')
 
-            ax.set_title(r'$\Psi_{edge}$'+' : {0:0.2f}'.format(1e4 * area * np.mean(points_out[0:,3]))+r' [$T\cdot cm^2$]')
+            # ax.set_title(r'$\Psi_{edge}$'+' : {0:0.2f}'.format(1e4 * area * np.mean(points_out[0:,3]))+r' [$T\cdot cm^2$]')
+            ax.set_title(r'$\Psi_{edge}$'+' : {0:0.4f}'.format(area * np.mean(points_out[0:,3]))+r' [$T\cdot m^2$]')
             ax.scatter(points[0:,0] * 1e2, points[0:,1] * 1e2, c='k', s=5, zorder=10)
 
             s_map = ax.scatter( sample_points[0:,0] * 1e2, sample_points[0:,1] * 1e2, c=points_out[0:,bidx], s=10, cmap='jet')
@@ -1492,48 +1524,13 @@ class flf_wrapper:
         hf_file.close()
 
 if __name__ == '__main__':
+    # instantiate flf object #
     flf = flf_wrapper('HSX')
+    flf.set_transit_parameters(9, 25)
 
-    npts = 3
-    darc = 0.25
-    total_length = 200
-
-    n_set = np.arange(1, 11)
-    z_dom = np.linspace(-0.3, 0.3, 50)
-    L_dom = np.empty((n_set.shape[0], z_dom.shape[0]))
-    for i, n in enumerate(n_set):
-        d0 = n*1.44e-3
-        print('({}|{})'.format(i+1, n_set.shape[0]))
-        for j, z in enumerate(z_dom):
-            init_point = np.array([1.475, z, 0])
-            lyp_exp = flf.calc_lyapunov_exponents(init_point, d0, npts, darc, total_length, ndims=3)
-            L_dom[i,j] = lyp_exp
-    
-    flf.plotting()
-    fig, ax = plt.subplots(1, 1, tight_layout=True, figsize=(8, 6))
-
-    for i, n in enumerate(n_set):
-        ax.plot(z_dom, L_dom[i,:], ls='--', marker='o', mfc='None', label=r'${0:0.0f} \times \rho_{{\mathrm{{s}}}}$'.format(n))
-
-    ax.set_xlabel(r'Z (m)')
-    ax.set_ylabel(r'$\lambda_{\mathrm{Lyp}}$')
-
-    ax.set_xlim(z_dom[0], z_dom[-1])
-    ax.set_ylim(1e-2, 1e2)
-    ax.set_yscale('log')
-
-    plt.legend(title=r'$d_0$', frameon=False)
-    plt.show()
-    
-    if False:
-        # instantiate flf object #
-        flf = flf_wrapper('HSX')
-        flf.set_transit_parameters(5, 500)
-
-        init_point = np.array([1.6, 0.0, 0.0])
-        flf.find_lcfs(init_point, 4, [0, 2.0])
-        flf.find_magnetic_axis(flf.lcfs_point, 4)
-
-        flf.read_out_domain(flf.ma_point, flf.lcfs_point, 5)
-        flf.plotting()
-        flf.plot_poincare_data()
+    R_pnt = np.linspace(1.38, 1.5, 100)
+    Z_pnt = np.linspace(-0.1, 0.1, 100)
+    for i, R in enumerate(R_pnt):
+        for j, Z in enumerate(Z_pnt):
+            init_point = np.array([R, Z, 0])
+            flf.execute_flf(init_point)
