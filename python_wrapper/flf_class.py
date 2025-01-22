@@ -519,24 +519,26 @@ class flf_wrapper:
         """ Plot poincare data.
         """
         self.plotting()
-        fig, ax = plt.subplots(tight_layout=True)
+        fig, ax = plt.subplots(tight_layout=True, figsize=(4,8))
         ax.set_aspect('equal')
 
         # plot data #
         poin_data = self.poin_points
         if poin_data.ndim == 3:
             for data in poin_data:
-                smap = ax.scatter(data[:, 0], data[:, 1], c=data[:, 3], s=1)
+                # smap = ax.scatter(data[:, 0], data[:, 1], c=data[:, 3], s=1)
+                ax.scatter(data[:, 0], data[:, 1], c='k', s=0.25)
         elif poin_data.ndim == 2:
-            smap = ax.scatter(poin_data[:, 0], poin_data[:, 1], c=poin_data[:, 3], s=1)
+            # smap = ax.scatter(poin_data[:, 0], poin_data[:, 1], c=poin_data[:, 3], s=1)
+            ax.scatter(poin_data[:, 0], poin_data[:, 1], c='k', s=1)
             ax.scatter(poin_data[0, 0], poin_data[0, 1], c='k', s=100, marker='x')
 
         # axis labels #
         ax.set_xlabel('R/m')
         ax.set_ylabel('Z/m')
 
-        cbar = fig.colorbar(smap, ax=ax)
-        cbar.ax.set_ylabel('B/T')
+        #cbar = fig.colorbar(smap, ax=ax)
+        #cbar.ax.set_ylabel('B/T')
 
         # axis grid #
         ax.grid()
@@ -544,6 +546,8 @@ class flf_wrapper:
         # save/show#
         if save_path is None:
             plt.show()
+        elif save_path == 'Return':
+            return plt, fig, ax
         else:
             plt.savefig(save_path)
 
@@ -676,7 +680,7 @@ class flf_wrapper:
                 self.read_out_point(init_point)
                 fs_check = self.flux_surface_dimensionality(self.poin_points)
                 print('flux surface dimension = {}\n'.format(fs_check+1))
-                while fs_check > 0.05:
+                while np.abs(fs_check) > 0.05:
                     init_point[0] -= np.abs(dr)
                     self.read_out_point(init_point)
                     fs_check = self.flux_surface_dimensionality(self.poin_points)
@@ -875,9 +879,9 @@ class flf_wrapper:
         save_path: str
             global path to where descur input will be saved.
         pol_pnts: int, optional
-            Number of poloidal points in DESCUR input. The default is 120.
+            Number of poloidal points in DESCUR input. The default is 20.
         tor_pnts: int, optional
-            Number of toroidal points in DESCUR input. The default is 90.
+            Number of toroidal points in DESCUR input. The default is 80.
         """
         nfp = int(self.params['num_periods'])
         u_pnts = int(pol_pnts * nfp)
@@ -887,10 +891,12 @@ class flf_wrapper:
         if tor_pnts % nfp != 0 and pol_pnts % 10 != 0:
             raise ValueError('tor_pnts and pol_pnts must be multiples of the number of field periods ({0:0.0f}).'.format(nfp))
 
-        dphi = (2 * np.pi) / tor_pnts
+        dphi = (2*np.pi)/tor_pnts
         stps = tor_pnts
-        mod_dict = {'points_dphi' : dphi,
-                    'n_iter' : stps}
+        mod_dict = {'general_option': 1,
+                    'points_number': 1,
+                    'points_dphi': dphi,
+                    'n_iter': stps}
 
         v_dom = np.arange(0, 2*np.pi, dphi)
 
@@ -1523,14 +1529,62 @@ class flf_wrapper:
         hf_file.create_dataset(data_key+' Bvec', data=vec_points)
         hf_file.close()
 
+
 if __name__ == '__main__':
+    ModDir = os.path.join('/home', 'michael', 'Desktop', 'python_repos', 'turbulence-optimization', 'pythonTools')
+    sys.path.append(ModDir)
+    import vmecTools.wout_files.wout_read as wr
+
+    curr = 0.07
+    curr_tag = '{0:0.1f}'.format(curr*1e2).replace('.', 'p').replace('-', 'n')
+
+    wout_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'main_coil_0', 'set_3', 'job_84', 'wout_0-3-84_%s_mn1824_ns101.nc' % curr_tag)
+    wout = wr.readWout(wout_path)
+    wout.transForm_1D(wout.s_grid[61], 0, 0, ['R', 'Z'])
+    pnt2 = np.array([wout.invFourAmps['R'], wout.invFourAmps['Z'], 0.])
+    wout.transForm_1D(0, 0, 0, ['R', 'Z'])
+    ma_guess = np.array([wout.invFourAmps['R'], wout.invFourAmps['Z'], 0.])
+
     # instantiate flf object #
     flf = flf_wrapper('HSX')
-    flf.set_transit_parameters(9, 25)
+    flf.set_transit_parameters(1, 500)
 
-    R_pnt = np.linspace(1.38, 1.5, 100)
-    Z_pnt = np.linspace(-0.1, 0.1, 100)
-    for i, R in enumerate(R_pnt):
-        for j, Z in enumerate(Z_pnt):
-            init_point = np.array([R, Z, 0])
-            flf.execute_flf(init_point)
+    crnt_arr = -10722 * np.append(np.array([1, 1, 1, 1, 1, 1]), 14*curr*np.array([1.0, 0.0, 1.0, 1.0, 0.0, 1.0]))
+    crnt_str = ' '.join([str(x) for x in crnt_arr])
+    chg_dict = {'mgrid_currents': crnt_str}
+
+    flf.change_params(chg_dict)
+
+    lcfs_init = np.array([1.6, 0, 0])
+    # flf.find_lcfs(lcfs_init, 4, [0, 2], high_precission=False)
+    # pnt2 = flf.lcfs_point
+    # pnt2 = np.array([1.52, 0, 0])
+
+    flf.find_magnetic_axis(ma_guess, 4)
+    pnt1 = flf.ma_point
+    # pnt1 = np.array([1.4400, 0, 0])
+    # pnt1 = wout_data[0, 0, 0:3]
+
+    # plot flux surfaces with vacuum vessel #
+    if False:
+        flf.read_out_domain(pnt1, pnt2, 3, clean=False)
+        plt, fig, ax = flf.plot_poincare_data(save_path='Return')
+        path = os.path.join('/mnt','HSX_Database','HSX_Configs','coil_data','vessel90.h5')
+        with hf.File(path,'r') as hf_file:
+            vessel = hf_file['data'][:]
+            v_dom = hf_file['domain'][:]
+            idx = np.argmin(np.abs(v_dom))
+            ves_x = vessel[idx,:,0]
+            ves_y = vessel[idx,:,1]
+            ves_r = np.hypot(ves_x, ves_y)
+            ves_z = vessel[idx,:,2]
+        ax.plot(ves_r, ves_z, c='k')
+        plt.show()
+
+    # compute edge toroidal flux #
+    if True:
+        psi_edge = flf.calc_psiEdge(pnt1, pnt2, upts=500, plot=True)
+        print(psi_edge)
+
+        save_path = os.path.join('/home', 'michael', 'Desktop', 'fortran_repos', 'Stellarator-Tools', 'Stell-Exec', 'descur_0-3-84_%s.txt'%curr_tag)
+        flf.generate_descur_input(pnt1, pnt2, save_path, pol_pnts=40, tor_pnts=160)

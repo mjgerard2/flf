@@ -12,7 +12,7 @@ ModDir = os.path.join('/home', 'michael', 'Desktop', 'flf', 'python_wrapper')
 sys.path.append(ModDir)
 import flf_class as flfc
 
-ModDir = os.path.join('/home', 'michael', 'Desktop', 'python_repos', 'turbulence-optimization', 'pythonTools')
+ModDir = os.path.join('/home', 'michael', 'Desktop', 'python_repos', 'turbulence-optimization')
 sys.path.append(ModDir)
 from databaseTools import functions
 
@@ -42,16 +42,15 @@ def maximum_lyapunov_exponent(in_que, out_que, run_dict):
             out_que.put([run_idx, lyp_exponent])
 
 # Number of CPUs to use #
-num_of_cpus = 8  # cpu_count()-2
+num_of_cpus = cpu_count()-4
 print('Number of CPUs: {0:0.0f}'.format(num_of_cpus))
 
-config_id = '60-1-84'
-main, aux = functions.readCrntConfig(config_id)
+# config_id = '0-1-0'
+# main, aux = functions.readCrntConfig(config_id)
 
-print(aux)
-"""
-crnt = -10722. * np.r_[main, 14*aux]
-mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt]), 
+# crnt = -10722. * np.r_[main, 14*aux]
+crnt = np.array([-10722.0, -10507.56, -10722.0, -10614.78, -10722.0, -10722.0, -15010.8, -15010.8, -15010.8, -15010.8, -15010.8, -15010.8])
+mod_dict = {'mgrid_currents': ' '.join(['{}'.format(c) for c in crnt]),
             'mgrid_file': os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'mgrid_extnd_res5p0mm_30pln.nc')}
 
 run_dict = {'dx': 1e-3, # spatial separation of sample points in meters
@@ -64,10 +63,11 @@ run_dict = {'dx': 1e-3, # spatial separation of sample points in meters
 
 # get search domain from vessel wall #
 # vess_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'vessel90.h5')
-vess_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'vessel_dieter_RF.txt')
+vess_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'coil_data', 'vessel_low_res_RF.txt')
 #with hf.File(vess_path, 'r') as hf_:
 #    vess_data = hf_['data'][()]
 #    vess_dom = hf_['domain'][()]
+
 with open(vess_path, 'r') as f:
     lines = f.readlines()
     tor_pnts, pol_pnts = [int(x) for x in lines[0].strip().split()]
@@ -82,8 +82,8 @@ idx = np.argmin(np.abs(vess_dom - run_dict['tor_ang']))
 R_vess = np.linalg.norm(vess_data[idx][:, 0:2], axis=1)
 Z_vess = vess_data[idx][:, 2]
 
-R_min, R_max = np.min(R_vess), np.max(R_vess)
-Z_min, Z_max = np.min(Z_vess), np.max(Z_vess)
+R_min, R_max = R_vess.min(), R_vess.max()
+Z_min, Z_max = Z_vess.min(), Z_vess.max()
 
 Rpts = int(((R_max-R_min)/run_dict['dx'])+1)
 Zpts = int(((Z_max-Z_min)/run_dict['dx'])+1)
@@ -95,7 +95,8 @@ Z_dom = np.linspace(Z_min, Z_max, Zpts)
 run_dict['Z_dom'] = Z_dom
 
 # save run data #
-date_tag = '20231017'  # datetime.now().strftime('%Y%m%d')
+"""
+date_tag = '20240408'  # datetime.now().strftime('%Y%m%d')
 main_id = 'main_coil_{}'.format(config_id.split('-')[0])
 set_id = 'set_{}'.format(config_id.split('-')[1])
 job_id = 'job_{}'.format(config_id.split('-')[2])
@@ -106,6 +107,8 @@ if len(lyp_nums) > 0:
 else:
     lyp_tag = '0001'
 lyp_path = os.path.join(lyp_dir, '%s_%s.h5' % (date_tag, lyp_tag))
+"""
+lyp_path = os.path.join('/home', 'michael', 'Desktop', 'for_dieter', 'large_island_lyapunov_tor0p00.h5')
 
 if os.path.isfile(lyp_path):
     with hf.File(lyp_path, 'r') as hf_:
@@ -154,4 +157,3 @@ while True:
             lyp_exponent[R_idx] = lyp_exp
             del hf_['lyapunov exponents']
             hf_.create_dataset('lyapunov exponents', data=lyp_exponent)
-"""
