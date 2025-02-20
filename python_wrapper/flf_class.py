@@ -8,8 +8,8 @@ import matplotlib.path as mpltPath
 from scipy.stats import chisquare
 from sklearn.linear_model import LinearRegression
 
-flf_dir = os.path.join('/home', 'michael', 'Desktop', 'flf')
-wrapper_dir = os.path.join(flf_dir, 'python_wrapper')
+wrapper_dir = os.path.dirname(os.path.realpath(__file__))
+flf_dir = os.path.join(wrapper_dir, '..')
 sys.path.append(wrapper_dir)
 import exp_params as ep
 
@@ -1531,60 +1531,21 @@ class flf_wrapper:
 
 
 if __name__ == '__main__':
-    ModDir = os.path.join('/home', 'michael', 'Desktop', 'python_repos', 'turbulence-optimization', 'pythonTools')
-    sys.path.append(ModDir)
-    import vmecTools.wout_files.wout_read as wr
-
-    curr = 0.07
-    curr_tag = '{0:0.1f}'.format(curr*1e2).replace('.', 'p').replace('-', 'n')
-
-    wout_path = os.path.join('/mnt', 'HSX_Database', 'HSX_Configs', 'main_coil_0', 'set_3', 'job_84', 'wout_0-3-84_%s_mn1824_ns101.nc' % curr_tag)
-    wout = wr.readWout(wout_path)
-    wout.transForm_1D(wout.s_grid[61], 0, 0, ['R', 'Z'])
-    pnt2 = np.array([wout.invFourAmps['R'], wout.invFourAmps['Z'], 0.])
-    wout.transForm_1D(0, 0, 0, ['R', 'Z'])
-    ma_guess = np.array([wout.invFourAmps['R'], wout.invFourAmps['Z'], 0.])
-
     # instantiate flf object #
     flf = flf_wrapper('HSX')
     flf.set_transit_parameters(1, 500)
 
-    crnt_arr = -10722 * np.append(np.array([1, 1, 1, 1, 1, 1]), 14*curr*np.array([1.0, 0.0, 1.0, 1.0, 0.0, 1.0]))
+    # modify coil currents from default #
+    crnt_arr = -10722 * np.append(np.array([1, 1, 1, 1, 1, 1]), np.zeros(0))
     crnt_str = ' '.join([str(x) for x in crnt_arr])
     chg_dict = {'mgrid_currents': crnt_str}
-
     flf.change_params(chg_dict)
 
-    lcfs_init = np.array([1.6, 0, 0])
-    # flf.find_lcfs(lcfs_init, 4, [0, 2], high_precission=False)
-    # pnt2 = flf.lcfs_point
-    # pnt2 = np.array([1.52, 0, 0])
+    # define FLF seed points in (R, Z, \phi) coordinates #
+    pnt1 = np.array([1.45, 0, 0])
+    pnt2 = np.array([1.5, 0, 0])
 
-    flf.find_magnetic_axis(ma_guess, 4)
-    pnt1 = flf.ma_point
-    # pnt1 = np.array([1.4400, 0, 0])
-    # pnt1 = wout_data[0, 0, 0:3]
-
-    # plot flux surfaces with vacuum vessel #
-    if False:
-        flf.read_out_domain(pnt1, pnt2, 3, clean=False)
-        plt, fig, ax = flf.plot_poincare_data(save_path='Return')
-        path = os.path.join('/mnt','HSX_Database','HSX_Configs','coil_data','vessel90.h5')
-        with hf.File(path,'r') as hf_file:
-            vessel = hf_file['data'][:]
-            v_dom = hf_file['domain'][:]
-            idx = np.argmin(np.abs(v_dom))
-            ves_x = vessel[idx,:,0]
-            ves_y = vessel[idx,:,1]
-            ves_r = np.hypot(ves_x, ves_y)
-            ves_z = vessel[idx,:,2]
-        ax.plot(ves_r, ves_z, c='k')
-        plt.show()
-
-    # compute edge toroidal flux #
-    if True:
-        psi_edge = flf.calc_psiEdge(pnt1, pnt2, upts=500, plot=True)
-        print(psi_edge)
-
-        save_path = os.path.join('/home', 'michael', 'Desktop', 'fortran_repos', 'Stellarator-Tools', 'Stell-Exec', 'descur_0-3-84_%s.txt'%curr_tag)
-        flf.generate_descur_input(pnt1, pnt2, save_path, pol_pnts=40, tor_pnts=160)
+    # plot flux surfaces #
+    flf.read_out_domain(pnt1, pnt2, 3, clean=False)
+    plt, fig, ax = flf.plot_poincare_data(save_path='Return')
+    plt.show()
