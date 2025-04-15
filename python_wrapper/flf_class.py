@@ -53,16 +53,16 @@ class flf_wrapper:
 
     plotting(fontsize=14, labelsize=16, linewidth=2)
         Define plotting parameters.
-    
+
     plot_poincare_data(save_path=None)
         Plot poincare data.
-    
+
     save_poincare_data(save_path, data_key)
         Save Poincare data as hdf5 file.
-    
+
     save_exe_data(save_path, data_key)
         Save data output from the flf code as hdf5 file.
-    
+
     find_lcfs(init_point, dec_limit, r_limits, scan_res_limit=2, high_precission=True)
         Approximately locate the LCFS and Magnetic Axis, represented as
         (r,z,t) points initialized in the flf code.
@@ -530,7 +530,7 @@ class flf_wrapper:
                 ax.scatter(data[:, 0], data[:, 1], c='k', s=0.25)
         elif poin_data.ndim == 2:
             # smap = ax.scatter(poin_data[:, 0], poin_data[:, 1], c=poin_data[:, 3], s=1)
-            ax.scatter(poin_data[:, 0], poin_data[:, 1], c='k', s=1)
+            ax.scatter(poin_data[:, 0], poin_data[:, 1], c='k', s=1, zorder=10)
             ax.scatter(poin_data[0, 0], poin_data[0, 1], c='k', s=100, marker='x')
 
         # axis labels #
@@ -1518,7 +1518,7 @@ class flf_wrapper:
             for i, point in enumerate(points):
                 exe_point = self.execute_flf(point[:, 0:3], quiet=quiet, clean=clean)
                 if not exe_point is None:
-                    vec_points[i] = exe_point
+                    vec_points[i] = exe_point[:, 0:3]
         elif ndim == 2:
             exe_point = self.execute_flf(points, quiet=quiet, clean=clean)
             if not exe_point is None:
